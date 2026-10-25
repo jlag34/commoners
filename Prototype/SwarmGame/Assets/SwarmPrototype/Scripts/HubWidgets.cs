@@ -61,8 +61,8 @@ namespace SwarmPrototype
             group.spacing = spacing;
             group.padding = padding ?? new RectOffset();
             group.childAlignment = align;
-            group.childControlWidth = controlWidth;
-            group.childControlHeight = controlHeight;
+            // Children are always sized by the group; `controlWidth` only decides whether they stretch across it.
+            group.childControlWidth = group.childControlHeight = true;
             group.childForceExpandWidth = controlWidth;
             group.childForceExpandHeight = false;
             return rect;
@@ -76,8 +76,8 @@ namespace SwarmPrototype
             group.spacing = spacing;
             group.padding = padding ?? new RectOffset();
             group.childAlignment = align;
-            group.childControlWidth = controlWidth;
-            group.childControlHeight = controlHeight;
+            // Children are always sized by the group; `controlHeight` only decides whether they stretch to the row height.
+            group.childControlWidth = group.childControlHeight = true;
             group.childForceExpandWidth = false;
             group.childForceExpandHeight = controlHeight;
             return rect;
@@ -149,7 +149,7 @@ namespace SwarmPrototype
 
         public static Image Shadow(RectTransform rect, float radius, float blur, Color color, float offsetY = -6)
         {
-            var shade = Inset(rect, "Shadow", -blur, -blur + offsetY, -blur, -blur - offsetY);
+            var shade = Inset(rect, "Shadow", -blur, -blur - offsetY, -blur, -blur + offsetY);
             shade.SetAsFirstSibling();
             var image = shade.gameObject.AddComponent<Image>();
             image.sprite = HubArt.Shadow(radius, blur);
@@ -287,11 +287,12 @@ namespace SwarmPrototype
                 default: fill = Color.clear; hover = HubTheme.GoldWash; text = HubTheme.Gold; break;
             }
 
-            var rect = Rect(parent, name);
-            bool fixedWidth = spec.Width > 0;
-            float width = fixedWidth ? spec.Width : -1;
+            bool fixedWidth = spec.Width > 0, flex = spec.FlexWidth > 0;
+            var rect = Row(parent, name, spec.Gap, Pad(0, (int)spec.PaddingX), TextAnchor.MiddleCenter);
             rect.sizeDelta = new Vector2(fixedWidth ? spec.Width : spec.Height, spec.Height);
-            Size(rect, width, spec.Height, spec.FlexWidth, 0, fixedWidth ? spec.Width : -1, spec.Height);
+            // Fixed: explicit width. Flex: preferred 0 so siblings split the space evenly (CSS minmax(0, 1fr)).
+            // Auto: the layout group's preferred width (padding + icon + label).
+            Size(rect, fixedWidth ? spec.Width : flex ? 0 : -1, spec.Height, spec.FlexWidth, 0, fixedWidth ? spec.Width : flex ? 0 : -1, spec.Height);
             if (spec.Shadow) Shadow(rect, spec.Radius, 18, HubTheme.Rgba(6, 18, 22, 0.45f));
             var image = Background(rect, fill, spec.Radius, true);
             Image edge = hasBorder ? Border(rect, border, spec.Radius) : null;
@@ -301,19 +302,17 @@ namespace SwarmPrototype
             button.transition = Selectable.Transition.None;
             if (onClick != null) button.onClick.AddListener(onClick);
 
-            var row = Row(rect, "Content", spec.Gap, Pad(0, (int)spec.PaddingX), TextAnchor.MiddleCenter, false, false);
-            Stretch(row);
-            row.GetComponent<HorizontalLayoutGroup>().childForceExpandWidth = false;
             Image iconImage = null;
-            if (spec.Icon != null) iconImage = Icon(row, "Icon", spec.Icon, spec.IconSize, text);
+            if (spec.Icon != null) iconImage = Icon(rect, "Icon", spec.Icon, spec.IconSize, text);
             TMP_Text caption = null;
             if (!string.IsNullOrEmpty(label))
             {
-                caption = HubTheme.Text(row, "Label", label, spec.FontSize, text, spec.Face, spec.Tracking, TextAlignmentOptions.Center, false);
+                caption = HubTheme.Text(rect, "Label", label, spec.FontSize, text, spec.Face, spec.Tracking, TextAlignmentOptions.Center, false);
                 // CSS letter-spacing adds a trailing gap; offset it so centred captions sit centred.
                 caption.margin = new Vector4(spec.Tracking * spec.FontSize, 0, 0, 0);
             }
-            if (!fixedWidth && spec.FlexWidth <= 0) FitContent(rect, true, false);
+            // Outside a layout group nothing else sizes an auto-width button, so fit it to its content.
+            if (!fixedWidth && !flex && parent.GetComponent<LayoutGroup>() == null) FitContent(rect, true, false);
 
             var tint = rect.gameObject.AddComponent<HubHover>();
             tint.Fill = image; tint.Normal = fill; tint.Hover = hover;

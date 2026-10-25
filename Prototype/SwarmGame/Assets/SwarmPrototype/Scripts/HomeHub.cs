@@ -22,7 +22,8 @@ namespace SwarmPrototype
         TMP_InputField chatInput;
         ScrollRect chatScroll, friendsScroll;
         Action openSettings, openProfile, openRanked, play;
-        bool scrollChatToEnd;
+        bool scrollChatToEnd, builtAddOpen;
+        string builtNote;
 
         public void Build(RectTransform parent, HubState state, Action openSettings, Action openProfile, Action openRanked, Action play)
         {
@@ -223,6 +224,7 @@ namespace SwarmPrototype
             Rule(chat, "Composer rule", HubTheme.Rgba(156, 194, 188, 0.1f));
             var composer = Row(chat, "Composer", 8, Pad(12, 10, 12, 12), TextAnchor.MiddleLeft);
             chatInput = Input(composer, "Chat input", "", "", v => State.Drafts[State.ChatTab] = v, SendChat, 44, 10, HubTheme.Track, HubTheme.PanelBorderStrong, null, 240);
+            chatInput.richText = false;
             IconButton(composer, "Send message", "send", () => SendChat(chatInput.text), 44, HubTheme.Gold, HubTheme.GoldWash);
 
             // Play
@@ -270,7 +272,14 @@ namespace SwarmPrototype
         void RefreshFriends()
         {
             onlineLabel.text = State.OnlineCount + " online";
+            if (builtAddOpen != State.AddOpen || builtNote != State.Note) RefreshAddForm();
+            RefreshFriendList();
+        }
 
+        // Rebuilt only when it changes, so typing in search never steals focus from the add-friend field.
+        void RefreshAddForm()
+        {
+            builtAddOpen = State.AddOpen; builtNote = State.Note;
             Clear(addSlot);
             if (State.AddOpen)
             {
@@ -286,7 +295,10 @@ namespace SwarmPrototype
                 var note = Column(addSlot, "Note", 0, Pad(18, 0, 18, 10));
                 HubTheme.Text(note, "Note text", State.Note, 12, HubTheme.Online);
             }
+        }
 
+        void RefreshFriendList()
+        {
             Clear(friendsContent);
             if (State.Requests.Count > 0)
             {
@@ -489,8 +501,11 @@ namespace SwarmPrototype
             HubTheme.Label(partyText, State.PartyTitle);
             HubTheme.Text(partyText, "Subtitle", State.PartySubtitle, 12, HubTheme.Secondary, HubTheme.Face.Body, 0, TextAlignmentOptions.MidlineLeft, false);
             if (State.InOtherParty)
-                Button(partyText, "Leave party", "LEAVE PARTY", ButtonStyle.DangerText, () => State.LeaveParty(),
+            {
+                var leave = Button(partyText, "Leave party", "LEAVE PARTY", ButtonStyle.DangerText, () => State.LeaveParty(),
                     new Spec { Height = 28, PaddingX = 0, Radius = 6, FontSize = 11, Tracking = 0.12f });
+                leave.GetComponent<HorizontalLayoutGroup>().childAlignment = TextAnchor.MiddleLeft; // CSS align-self: flex-start
+            }
             var slots = Row(party, "Slots", 8, null, TextAnchor.MiddleLeft, false, false);
             if (State.InOtherParty)
             {
