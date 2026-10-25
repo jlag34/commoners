@@ -1,0 +1,31 @@
+# macOS
+.DS_Store
+Screenshot *.png
+
+# Unity (project lives in Prototype/SwarmGame)
+Prototype/SwarmGame/[Ll]ibrary/
+Prototype/SwarmGame/[Tt]emp/
+Prototype/SwarmGame/[Oo]bj/
+Prototype/SwarmGame/[Bb]uild/
+Prototype/SwarmGame/[Bb]uilds/
+Prototype/SwarmGame/[Ll]ogs/
+Prototype/SwarmGame/[Uu]ser[Ss]ettings/
+Prototype/SwarmGame/*.csproj
+Prototype/SwarmGame/*.sln
+Prototype/SwarmGame/.vs/
+Prototype/SwarmGame/.idea/
+Prototype/SwarmGame/gearshot.trigger
+*.pidb.meta
+*.pdb.meta
+*.mdb.meta
+
+# Prototype logs and renders
+Prototype/*.log
+Prototype/screenshot-*.png
+
+# Server
+Server/**/bin/
+Server/**/obj/
+Server/**/node_modules/
+Server/**/.env
+Server/**/*.user

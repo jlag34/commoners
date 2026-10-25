@@ -1,0 +1,574 @@
+{
+  "spawnInterval": 5.0,
+  "maxUnitsPerTeam": 10,
+  "startingGold": 0,
+  "goldPerUnitKill": 5,
+  "goldPerBaseKill": 200,
+  "mainTower": {
+    "health": 2000,
+    "armor": 2,
+    "attack": 15,
+    "attacksPerSecond": 1.0,
+    "range": 10,
+    "bounty": 0
+  },
+  "secondaryTower": {
+    "health": 600,
+    "armor": 3,
+    "attack": 8,
+    "attacksPerSecond": 1.0,
+    "range": 12,
+    "bounty": 50
+  },
+  "baseSpacing": 80,
+  "mapSize": 140,
+  "plateauSize": 24,
+  "plateauHeight": 2.5,
+  "entranceWidth": 6,
+  "rampLength": 9,
+  "enemyFirstAttackDelay": 20,
+  "enemyAttackInterval": 30,
+  "enemyAttackMinUnits": 7,
+  "enemyDefenders": 3,
+  "unit": {
+    "maxHealth": 100,
+    "attack": 10,
+    "attacksPerSecond": 1.0,
+    "moveSpeed": 5,
+    "armor": 1,
+    "attackRange": 0.6,
+    "aggroRange": 10,
+    "evasion": 0
+  },
+  "campRespawnDelay": 30,
+  "campScalePerMinute": 0.05,
+  "tiers": [
+    {
+      "difficulty": "easy",
+      "skulls": 1,
+      "lesserChance": 0.1,
+      "greaterChance": 0.0,
+      "eliteChance": 0.0
+    },
+    {
+      "difficulty": "medium",
+      "skulls": 4,
+      "lesserChance": 0.25,
+      "greaterChance": 0.04,
+      "eliteChance": 0.0
+    },
+    {
+      "difficulty": "hard",
+      "skulls": 10,
+      "lesserChance": 0.2,
+      "greaterChance": 0.35,
+      "eliteChance": 0.05
+    },
+    {
+      "difficulty": "elite",
+      "skulls": 50,
+      "lesserChance": 0.0,
+      "greaterChance": 1.0,
+      "eliteChance": 1.0
+    }
+  ],
+  "eliteIntervalMin": 120,
+  "eliteIntervalMax": 180,
+  "elites": [
+    {
+      "name": "Ancient Treant",
+      "tint": "#4b6b2f",
+      "scale": 2.2,
+      "bounty": 120,
+      "leash": 25,
+      "abilities": [
+        "heal",
+        "knockback"
+      ],
+      "unit": {
+        "maxHealth": 1500,
+        "attack": 45,
+        "attacksPerSecond": 0.9,
+        "moveSpeed": 4.2,
+        "armor": 6,
+        "attackRange": 1.1,
+        "aggroRange": 12,
+        "evasion": 0
+      }
+    },
+    {
+      "name": "Venom Hydra",
+      "tint": "#3fae5a",
+      "scale": 2.0,
+      "bounty": 120,
+      "leash": 25,
+      "abilities": [
+        "poison"
+      ],
+      "unit": {
+        "maxHealth": 1300,
+        "attack": 30,
+        "attacksPerSecond": 1.2,
+        "moveSpeed": 4.5,
+        "armor": 4,
+        "attackRange": 1.1,
+        "aggroRange": 12,
+        "evasion": 0
+      }
+    },
+    {
+      "name": "Dark Knight",
+      "tint": "#3a2a52",
+      "scale": 1.8,
+      "bounty": 120,
+      "leash": 25,
+      "abilities": [
+        "execute"
+      ],
+      "unit": {
+        "maxHealth": 1200,
+        "attack": 40,
+        "attacksPerSecond": 0.8,
+        "moveSpeed": 5.0,
+        "armor": 5,
+        "attackRange": 1.0,
+        "aggroRange": 12,
+        "evasion": 0.1
+      }
+    },
+    {
+      "name": "Thunder Ogre",
+      "tint": "#4a6fd1",
+      "scale": 2.1,
+      "bounty": 130,
+      "leash": 25,
+      "abilities": [
+        "stun",
+        "frenzy"
+      ],
+      "unit": {
+        "maxHealth": 1500,
+        "attack": 35,
+        "attacksPerSecond": 0.9,
+        "moveSpeed": 4.2,
+        "armor": 5,
+        "attackRange": 1.1,
+        "aggroRange": 12,
+        "evasion": 0
+      }
+    },
+    {
+      "name": "Siege Golem",
+      "tint": "#7d8a99",
+      "scale": 2.4,
+      "bounty": 150,
+      "leash": 25,
+      "abilities": [
+        "splash"
+      ],
+      "unit": {
+        "maxHealth": 1900,
+        "attack": 38,
+        "attacksPerSecond": 0.6,
+        "moveSpeed": 3.6,
+        "armor": 8,
+        "attackRange": 1.3,
+        "aggroRange": 12,
+        "evasion": 0
+      }
+    },
+    {
+      "name": "Plague Shaman",
+      "tint": "#8e44ad",
+      "scale": 1.7,
+      "bounty": 130,
+      "leash": 25,
+      "abilities": [
+        "poison",
+        "heal"
+      ],
+      "unit": {
+        "maxHealth": 1100,
+        "attack": 26,
+        "attacksPerSecond": 1.0,
+        "moveSpeed": 4.6,
+        "armor": 3,
+        "attackRange": 1.0,
+        "aggroRange": 12,
+        "evasion": 0.15
+      }
+    }
+  ],
+  "camps": [
+    {
+      "name": "Wild Boars",
+      "difficulty": "easy",
+      "tint": "#8b5a2b",
+      "count": 4,
+      "bounty": 6,
+      "clearBonus": 12,
+      "scale": 0.85,
+      "unit": {
+        "maxHealth": 90,
+        "attack": 8,
+        "attacksPerSecond": 1.2,
+        "moveSpeed": 6,
+        "armor": 0,
+        "attackRange": 0.6,
+        "aggroRange": 7,
+        "evasion": 0
+      }
+    },
+    {
+      "name": "Goblin Scouts",
+      "difficulty": "easy",
+      "tint": "#5aa02c",
+      "count": 5,
+      "bounty": 5,
+      "clearBonus": 15,
+      "scale": 0.8,
+      "unit": {
+        "maxHealth": 70,
+        "attack": 7,
+        "attacksPerSecond": 1.3,
+        "moveSpeed": 5.5,
+        "armor": 0,
+        "attackRange": 0.6,
+        "aggroRange": 7,
+        "evasion": 0.15
+      }
+    },
+    {
+      "name": "Skeletons",
+      "difficulty": "easy",
+      "tint": "#d8d2c0",
+      "count": 4,
+      "bounty": 6,
+      "clearBonus": 15,
+      "scale": 0.95,
+      "unit": {
+        "maxHealth": 110,
+        "attack": 9,
+        "attacksPerSecond": 0.9,
+        "moveSpeed": 4.5,
+        "armor": 2,
+        "attackRange": 0.6,
+        "aggroRange": 7,
+        "evasion": 0
+      }
+    },
+    {
+      "name": "Wolf Pack",
+      "difficulty": "medium",
+      "tint": "#6e6e78",
+      "count": 4,
+      "bounty": 15,
+      "clearBonus": 30,
+      "scale": 0.9,
+      "unit": {
+        "maxHealth": 160,
+        "attack": 14,
+        "attacksPerSecond": 1.1,
+        "moveSpeed": 5.5,
+        "armor": 1,
+        "attackRange": 0.6,
+        "aggroRange": 8,
+        "evasion": 0.1
+      }
+    },
+    {
+      "name": "Bandit Camp",
+      "difficulty": "medium",
+      "tint": "#a0522d",
+      "count": 5,
+      "bounty": 10,
+      "clearBonus": 35,
+      "scale": 1.0,
+      "unit": {
+        "maxHealth": 130,
+        "attack": 11,
+        "attacksPerSecond": 1.0,
+        "moveSpeed": 5,
+        "armor": 2,
+        "attackRange": 0.6,
+        "aggroRange": 8,
+        "evasion": 0
+      }
+    },
+    {
+      "name": "Troll Hunters",
+      "difficulty": "medium",
+      "tint": "#2e8b57",
+      "count": 3,
+      "bounty": 18,
+      "clearBonus": 40,
+      "scale": 1.2,
+      "unit": {
+        "maxHealth": 220,
+        "attack": 17,
+        "attacksPerSecond": 0.9,
+        "moveSpeed": 5,
+        "armor": 2,
+        "attackRange": 0.8,
+        "aggroRange": 9,
+        "evasion": 0
+      }
+    },
+    {
+      "name": "Ogre Den",
+      "difficulty": "hard",
+      "tint": "#c9a227",
+      "count": 3,
+      "bounty": 35,
+      "clearBonus": 100,
+      "scale": 1.5,
+      "unit": {
+        "maxHealth": 420,
+        "attack": 26,
+        "attacksPerSecond": 0.8,
+        "moveSpeed": 4.5,
+        "armor": 4,
+        "attackRange": 0.9,
+        "aggroRange": 9,
+        "evasion": 0
+      }
+    },
+    {
+      "name": "Stone Golems",
+      "difficulty": "hard",
+      "tint": "#7d8a99",
+      "count": 3,
+      "bounty": 45,
+      "clearBonus": 110,
+      "scale": 1.7,
+      "unit": {
+        "maxHealth": 650,
+        "attack": 32,
+        "attacksPerSecond": 0.6,
+        "moveSpeed": 3.5,
+        "armor": 6,
+        "attackRange": 1.0,
+        "aggroRange": 8,
+        "evasion": 0
+      }
+    },
+    {
+      "name": "Dark Knights",
+      "difficulty": "hard",
+      "tint": "#3b2a5a",
+      "count": 4,
+      "bounty": 30,
+      "clearBonus": 100,
+      "scale": 1.15,
+      "unit": {
+        "maxHealth": 330,
+        "attack": 22,
+        "attacksPerSecond": 1.2,
+        "moveSpeed": 5.5,
+        "armor": 4,
+        "attackRange": 0.7,
+        "aggroRange": 10,
+        "evasion": 0
+      }
+    }
+  ],
+  "upgrades": [
+    {
+      "id": "strength",
+      "name": "Strength",
+      "stat": "attack",
+      "amountPerLevel": 1,
+      "baseCost": 15,
+      "costGrowth": 1.15,
+      "maxLevel": 0
+    },
+    {
+      "id": "attackSpeed",
+      "name": "Atk Speed",
+      "stat": "attackSpeed",
+      "amountPerLevel": 0.1,
+      "baseCost": 15,
+      "costGrowth": 1.15,
+      "maxLevel": 0
+    },
+    {
+      "id": "health",
+      "name": "Health",
+      "stat": "health",
+      "amountPerLevel": 10,
+      "baseCost": 15,
+      "costGrowth": 1.15,
+      "maxLevel": 0
+    },
+    {
+      "id": "armor",
+      "name": "Armor",
+      "stat": "armor",
+      "amountPerLevel": 1,
+      "baseCost": 15,
+      "costGrowth": 1.2,
+      "maxLevel": 0
+    },
+    {
+      "id": "moveSpeed",
+      "name": "Move Speed",
+      "stat": "moveSpeed",
+      "amountPerLevel": 0.08,
+      "baseCost": 15,
+      "costGrowth": 1.15,
+      "maxLevel": 10
+    },
+    {
+      "id": "unitCap",
+      "name": "Unit Count",
+      "stat": "unitCap",
+      "amountPerLevel": 1,
+      "baseCost": 25,
+      "costGrowth": 1.18,
+      "maxLevel": 20
+    },
+    {
+      "id": "lifesteal",
+      "name": "Lifesteal",
+      "stat": "lifesteal",
+      "tab": "greater",
+      "amountPerLevel": 0.03,
+      "baseCost": 40,
+      "costGrowth": 1.25,
+      "maxLevel": 10,
+      "skullCost": 10,
+      "essence": "greater",
+      "essenceCost": 1
+    },
+    {
+      "id": "evasion",
+      "name": "Evasion",
+      "stat": "evasion",
+      "tab": "greater",
+      "amountPerLevel": 0.04,
+      "baseCost": 40,
+      "costGrowth": 1.3,
+      "maxLevel": 8,
+      "skullCost": 10,
+      "essence": "greater",
+      "essenceCost": 1
+    },
+    {
+      "id": "crit",
+      "name": "Crit Chance",
+      "stat": "crit",
+      "tab": "greater",
+      "amountPerLevel": 0.05,
+      "baseCost": 40,
+      "costGrowth": 1.25,
+      "maxLevel": 8,
+      "skullCost": 10,
+      "essence": "greater",
+      "essenceCost": 1
+    },
+    {
+      "id": "splash",
+      "name": "Splash",
+      "stat": "splash",
+      "tab": "greater",
+      "amountPerLevel": 0.1,
+      "baseCost": 50,
+      "costGrowth": 1.3,
+      "maxLevel": 5,
+      "skullCost": 20,
+      "essence": "elite",
+      "essenceCost": 1
+    },
+    {
+      "id": "regen",
+      "name": "Unit Regen",
+      "stat": "regen",
+      "tab": "greater",
+      "amountPerLevel": 1,
+      "baseCost": 30,
+      "costGrowth": 1.2,
+      "maxLevel": 10,
+      "skullCost": 5,
+      "essence": "lesser",
+      "essenceCost": 1
+    },
+    {
+      "id": "towerDamage",
+      "name": "Tower Damage",
+      "stat": "towerDamage",
+      "tab": "greater",
+      "amountPerLevel": 0.15,
+      "baseCost": 35,
+      "costGrowth": 1.2,
+      "maxLevel": 10,
+      "skullCost": 5,
+      "essence": "lesser",
+      "essenceCost": 1
+    },
+    {
+      "id": "towerRange",
+      "name": "Tower Range",
+      "stat": "towerRange",
+      "tab": "greater",
+      "amountPerLevel": 1,
+      "baseCost": 40,
+      "costGrowth": 1.3,
+      "maxLevel": 5,
+      "skullCost": 5,
+      "essence": "lesser",
+      "essenceCost": 1
+    },
+    {
+      "id": "towerRegen",
+      "name": "Tower Regen",
+      "stat": "towerRegen",
+      "tab": "greater",
+      "amountPerLevel": 3,
+      "baseCost": 30,
+      "costGrowth": 1.2,
+      "maxLevel": 10,
+      "skullCost": 4,
+      "essence": "lesser",
+      "essenceCost": 1
+    },
+    {
+      "id": "spawnRate",
+      "name": "Spawn Rate",
+      "stat": "spawnRate",
+      "tab": "greater",
+      "amountPerLevel": 0.1,
+      "baseCost": 25,
+      "costGrowth": 1.25,
+      "maxLevel": 10,
+      "skullCost": 20,
+      "essence": "elite",
+      "essenceCost": 1
+    },
+    {
+      "id": "bounty",
+      "name": "Bounty",
+      "stat": "bounty",
+      "tab": "greater",
+      "amountPerLevel": 0.1,
+      "baseCost": 30,
+      "costGrowth": 1.25,
+      "maxLevel": 10,
+      "skullCost": 5,
+      "essence": "lesser",
+      "essenceCost": 1
+    },
+    {
+      "id": "reincarnate",
+      "name": "Reincarnate",
+      "stat": "reincarnate",
+      "tab": "greater",
+      "amountPerLevel": 0.06,
+      "baseCost": 40,
+      "costGrowth": 1.3,
+      "maxLevel": 5,
+      "skullCost": 10,
+      "essence": "greater",
+      "essenceCost": 1
+    }
+  ]
+}
