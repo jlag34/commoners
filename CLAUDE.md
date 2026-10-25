@@ -15,4 +15,4 @@ You are the **game** agent. A second session works in `Server/` at the same time
 - Commit on `main` with small, descriptive messages. Pull before you push; the server agent pushes too.
 
 ## Platform constraints (from GAME_DESIGN.md > Tech > Platforms)
-Steam, mobile and console with cross-play. So: deterministic lockstep sim in pure C# (no Rigidbody / NavMesh at runtime, fixed-point math), perf budget of a mid-range phone, Input System package, Canvas + TextMeshPro UI, URP. The current Rigidbody-based `Unit.cs` is reference for feel only.
+Steam, mobile and console with cross-play. Settled: graphics quality tiers, Input System package, Canvas + TextMeshPro UI, URP, own-account backend. **Not settled**: networking model (server-authoritative vs lockstep) and whether `Unit.cs` needs rewriting. Those wait on a max-load stress test and a multiplayer spike. Don't start a deterministic-sim rewrite on your own.

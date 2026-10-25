@@ -47,3 +47,5 @@ Store and entitlements, battle pass, talent tree, cosmetics inventory, lockstep 
 
 ## Requests
 (Each agent asks the other for things here instead of editing the other's files.)
+
+- 2026-10-25 game → server: keep scope to auth + lobby + match start + match result until the match is proven. No clans / store yet.

@@ -132,19 +132,24 @@ Rules:
 
 ### Platforms (decided 2026-10-25)
 
-Targets: **Steam (PC/Mac) at launch, mobile (iOS/Android) next, console if possible.** Cross-platform play and cross-progression are the goal. Everything built from here on must not block any of the three.
+Targets: **Steam (PC/Mac) at launch, mobile (iOS/Android) next, console if it earns it.** Cross-platform play and cross-progression are the goal. Nothing built from here on may block any of the three, but nothing gets built *for* mobile or console until the match is proven on PC.
 
-What that forces:
+What is settled:
 
-- **Deterministic simulation, lockstep networking.** The only model that gives hundreds of units per player on mobile bandwidth and console cert limits. The match sim is pure C# with no UnityEngine physics (no Rigidbody, no NavMesh queries at runtime) and fixed-point or integer math so x86 and ARM agree. Unity only renders the sim state. The same sim runs on the server (bots, validation, replays) and in the client. The current prototype's Rigidbody steering is reference for feel only and gets replaced.
-- **Performance budget set by the weakest phone**, not the PC: GPU-instanced units, ≤2k tris per unit, GPU/baked skinning, one draw call per unit type, no per-unit physics or per-frame allocations. Profile on a mid-range Android early.
-- **Three input schemes** from one abstraction: mouse+keyboard, touch, gamepad. Use the Unity Input System package, not the legacy input manager. Every command the player can give is a data message (also what lockstep sends), so the input layer is swappable.
-- **Real UI (Canvas + TextMeshPro)**, resolution-independent, safe areas for notches, controller focus navigation, touch-sized targets. IMGUI is prototype-only.
-- **Own account system on our backend**; Steam / Apple / Google / PSN / Xbox IDs are linked logins, never the source of truth. Entitlements, progression, cosmetics and clans live server-side.
-- **Store goes through each platform's payment rails** (Steam wallet, App Store / Play IAP, console stores; ~30% cut each). Prices and SKUs defined server-side; loot/chest odds disclosed (Apple/Google/some consoles require it).
-- **Rendering: URP**, mobile-safe post-processing (bloom, color grading, vignette; no screen-space AO on mobile), quality tiers per platform.
-- **Console later**: needs a platform partner account, devkits, certification (TRC/XR), age ratings. Keep nothing in the way of it, build it last.
-- **Bots fill every lobby** on every platform, so matches always start.
+- **Graphics scale per device, gameplay doesn't.** High / medium / low quality tiers (shadows, post-processing, LODs, texture size, particle density, resolution scale). Same art, same rules, same UI layout everywhere. Stylized low-poly art scales down well.
+- **Minimum supported phone** is a named device (pick one: a 2022 mid-range Android), not "the weakest phone". Performance work targets it.
+- **Expected load** on a 3x3 map: 9 × 30 player units + up to ~100 camp monsters + a few elites, ~380 units worst case, ~250–300 typical.
+- **Controls**: PC keeps selection controls (box select, control groups) as the design doc says. Squad / flag commands are the touch and gamepad candidate; test whether they express the same decisions before committing.
+- **Own account system on our backend**; Steam / Apple / Google / PSN / Xbox IDs are linked logins, never the source of truth. Store goes through each platform's payment rails (~30% cut each), SKUs and prices defined server-side, chest odds disclosed where required.
+- **Rendering: URP**, Input System package (mouse, touch, gamepad from one map), Canvas + TextMeshPro UI with safe areas and controller navigation. IMGUI is prototype-only.
+- **Console is real engineering, not a checkbox**: platform SDKs, presence, suspend/resume, privilege checks, cross-play approval, certification. Decide after the Steam launch; keep the architecture from blocking it and nothing more.
+
+What is **not** settled, and gets decided by tests:
+
+- **Networking model.** Candidates: server-authoritative (server simulates, clients render; ~30 KB/s per client at 380 units before compression; validates results for free; costs server CPU per match) vs deterministic lockstep (tiny bandwidth, free replays, needs a deterministic sim and a rewrite of the physics-based movement). Pick after a host-authoritative multiplayer spike shows how command latency feels.
+- **Whether the current simulation is fast enough.** `Unit.cs` scans all combatants and uses Rigidbody + NavMesh. Run a representative maximum-load battle (9 teams at cap, all camps, elites) in the editor profiler, then on the minimum phone. Rewrite only what the profile says to.
+
+Order: stress test → multiplayer spike → choose model → then accounts / clans / store beyond what a lobby needs.
 
 ## First prototype priorities
 

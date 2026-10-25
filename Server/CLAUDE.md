@@ -3,7 +3,7 @@
 You are the **server** agent. A second session works on the Unity game in the repo root at the same time. Stay in your lane.
 
 ## What you build
-Backend for accounts, lobbies, clans, matchmaking and match results. Own program in this folder, deployed separately from the game. Platform logins (Steam, Apple, Google, later PSN / Xbox) are *linked identities* on our own account; our account is the source of truth. Entitlements, progression, cosmetics and clans live here. Store SKUs and prices are defined here and fulfilled through each platform's payment rails.
+Backend for accounts, lobbies, matchmaking and match results. **Scope for now: auth, lobby, match start, match result. Clans, store, battle pass and progression wait until the match itself is proven** (stress test + multiplayer spike on the game side). Own program in this folder, deployed separately from the game. Platform logins (Steam, Apple, Google, later PSN / Xbox) are *linked identities* on our own account; our account is the source of truth. Entitlements, progression, cosmetics and clans live here. Store SKUs and prices are defined here and fulfilled through each platform's payment rails.
 
 Stack unless told otherwise: .NET 8 minimal API (same language as the client, shared DTOs), PostgreSQL, WebSocket for lobby presence. Keep it boring and testable. Must run locally with one command.
 
