@@ -1,79 +1,165 @@
+using System.Collections;
+using TMPro;
 using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.UI;
 
 namespace SwarmPrototype
 {
-    // Start screen: pick how many players, see the map it makes, press Play.
+    // Boot -> splash -> home hub -> offline match. Screens come from SplashScreen / HomeHub (handoff UI);
+    // this host owns the canvas, persisted settings, the settings modal and the launch into Bootstrap.
     public class MainMenu : MonoBehaviour
     {
-        const string PrefKey = "SwarmPrototype.Players";
+        const string PlayerCountKey = "SwarmPrototype.Players", QualityKey = "Commoners.Graphics";
+        const string VolumeKey = "Commoners.Volume", MusicKey = "Commoners.Music", EffectsKey = "Commoners.Effects";
+        static bool enteredHome;
+        static HubState state;                       // survives home <-> match within one play session
+        RectTransform safe, splash, home, modal;
+        HomeHub hub;
+        Button startButton;
+        CanvasGroup homeInteraction;
+        SocialOverlay social;
+        bool launching;
 
-        int players;
-        MapLayout layout;
-        GameConfig config;
+        public HubState State => state;
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        static void ResetNavigation() { enteredHome = false; state = null; }
 
         void Awake()
         {
-            config = GameConfig.Load();
-            players = PlayerPrefs.GetInt(PrefKey, 4);
-            if (System.Array.IndexOf(MapLayout.Sizes, players) < 0) players = 4;
-            layout = MapLayout.Build(players, config);
+            if (state == null)
+            {
+                state = new HubState();
+                int players = PlayerPrefs.GetInt(PlayerCountKey, 4);
+                if (System.Array.IndexOf(MapLayout.Sizes, players) < 0) players = 4;
+                state.SetMapForPlayers(players);
+                state.Graphics = PlayerPrefs.GetInt(QualityKey, PresetFromQuality());
+                state.Master = PlayerPrefs.GetFloat(VolumeKey, 1);
+                state.Music = PlayerPrefs.GetFloat(MusicKey, 0.7f);
+                state.Effects = PlayerPrefs.GetFloat(EffectsKey, 0.85f);
+            }
+            if (PlayerPrefs.HasKey(QualityKey)) ApplyQuality(state.Graphics);
+            AudioListener.volume = state.Master;
+
+            // The social overlay owns the EventSystem and the in-match panel; it stays hidden on the home screens.
+            social = SocialOverlay.Ensure();
+            var canvas = new GameObject("Home Canvas", typeof(RectTransform), typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
+            canvas.transform.SetParent(transform, false);
+            canvas.GetComponent<Canvas>().renderMode = RenderMode.ScreenSpaceOverlay;
+            canvas.GetComponent<Canvas>().sortingOrder = 100;
+            var scaler = canvas.GetComponent<CanvasScaler>();
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = new Vector2(1600, 900);
+            scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.Expand;
+            HubWidgets.Background(HubWidgets.Fill(canvas.transform, "Base"), HubTheme.Base);
+            safe = HubWidgets.Fill(canvas.transform, "Safe area");
+            safe.gameObject.AddComponent<MenuSafeArea>();
+
+            home = HubWidgets.Fill(safe, "Character home");
+            homeInteraction = home.gameObject.AddComponent<CanvasGroup>();
+            hub = home.gameObject.AddComponent<HomeHub>();
+            hub.Build(home, state, ShowSettings, ShowProfile, ShowRanked, Play);
+
+            splash = HubWidgets.Fill(safe, "Start screen");
+            startButton = SplashScreen.Build(splash, EnterHome);
+
+            splash.gameObject.SetActive(!enteredHome);
+            home.gameObject.SetActive(enteredHome);
+            social.SetContext(true, false);
+        }
+
+        void Start() => Focus(enteredHome ? hub.PlayButton : startButton);
+
+        public void EnterHome()
+        {
+            enteredHome = true;
+            splash.gameObject.SetActive(false);
+            home.gameObject.SetActive(true);
+            Focus(hub.PlayButton);
+        }
+
+        public void Play()
+        {
+            // Online modes cannot start local bot matches; the hub shows why (ShowRanked).
+            if (launching || state.PlayLocked || state.InOtherParty) return;
+            launching = true;
+            hub.PlayButton.interactable = false;
+            hub.PlayButton.GetComponentInChildren<TMP_Text>().text = "PREPARING...";
+            PlayerPrefs.SetInt(PlayerCountKey, state.Map.Players);
+            PlayerPrefs.Save();
+            StartCoroutine(Launch());
+        }
+
+        IEnumerator Launch()
+        {
+            yield return null;
+            // Remove preview cameras/lights before the match sets up its lighting.
+            home.gameObject.SetActive(false);
+            social.SetContext(false);
+            Bootstrap.Play(state.Map.Players);
+        }
+
+        public void ShowSettings()
+        {
+            OpenModal();
+            modal = SettingsModal.Build(safe, state, preset =>
+            {
+                state.SetGraphics(preset);
+                ApplyQuality(preset);
+                PlayerPrefs.SetInt(QualityKey, preset);
+            }, (channel, value) =>
+            {
+                switch (channel)
+                {
+                    case "master": state.Master = value; AudioListener.volume = value; PlayerPrefs.SetFloat(VolumeKey, value); break;
+                    case "music": state.Music = value; PlayerPrefs.SetFloat(MusicKey, value); break;
+                    default: state.Effects = value; PlayerPrefs.SetFloat(EffectsKey, value); break;
+                }
+            }, ShowProfile, CloseModal);
+        }
+
+        public void ShowProfile() { OpenModal(); modal = SettingsModal.BuildProfile(safe, CloseModal); }
+        public void ShowRanked() { OpenModal(); modal = SettingsModal.BuildRanked(safe, CloseModal); }
+
+        void OpenModal()
+        {
+            CloseModal();
+            homeInteraction.interactable = false;
+            homeInteraction.blocksRaycasts = false;
+        }
+
+        void CloseModal()
+        {
+            if (modal != null) { modal.gameObject.SetActive(false); Destroy(modal.gameObject); }
+            modal = null;
+            if (homeInteraction != null) { homeInteraction.interactable = true; homeInteraction.blocksRaycasts = true; }
+            PlayerPrefs.Save();
+            Focus(hub != null ? hub.PlayButton : null);
+        }
+
+        static int PresetFromQuality()
+        {
+            int last = Mathf.Max(1, QualitySettings.names.Length - 1);
+            return Mathf.RoundToInt(QualitySettings.GetQualityLevel() * 2f / last);
+        }
+
+        static void ApplyQuality(int preset)
+        {
+            int last = QualitySettings.names.Length - 1;
+            QualitySettings.SetQualityLevel(preset == 0 ? 0 : preset == 1 ? last / 2 : last, true);
+        }
+
+        static void Focus(Selectable control)
+        {
+            if (control != null && control.gameObject.activeInHierarchy && EventSystem.current != null)
+                EventSystem.current.SetSelectedGameObject(control.gameObject);
         }
 
         void Update()
         {
-            if (InputShim.ConfirmPressed) Play();
-        }
-
-        void Play()
-        {
-            PlayerPrefs.SetInt(PrefKey, players);
-            Bootstrap.Play(players);
-        }
-
-        void OnGUI()
-        {
-            float w = 520f, h = 420f;
-            var panel = new Rect((Screen.width - w) * 0.5f, (Screen.height - h) * 0.5f, w, h);
-            UiSkin.Panel(panel);
-
-            var title = UiSkin.Title;
-            var old = title.alignment;
-            title.alignment = TextAnchor.MiddleCenter;
-            GUI.Label(new Rect(panel.x, panel.y + 10f, panel.width, 30f), "SWARM", title);
-            title.alignment = old;
-
-            GUI.Label(new Rect(panel.x + 20f, panel.y + 48f, 200f, 20f), "Players", UiSkin.Header);
-            float bx = panel.x + 20f;
-            foreach (int n in MapLayout.Sizes)
-            {
-                if (UiSkin.Button(new Rect(bx, panel.y + 72f, 44f, 30f), n.ToString(), n == players))
-                {
-                    players = n;
-                    layout = MapLayout.Build(players, config);
-                }
-                bx += 50f;
-            }
-
-            var preview = new Rect(panel.x + 20f, panel.y + 112f, 280f, 280f);
-            layout.DrawPreview(preview);
-
-            float ix = preview.xMax + 16f, iy = preview.y;
-            GUI.Label(new Rect(ix, iy, 200f, 20f), $"{players} players, free-for-all", UiSkin.Bold);
-            GUI.Label(new Rect(ix, iy + 22f, 200f, 20f), $"{layout.rows} x {layout.cols} bases", UiSkin.Cell);
-            GUI.Label(new Rect(ix, iy + 44f, 200f, 20f), $"{layout.camps.Count} monster camps", UiSkin.Cell);
-            GUI.Label(new Rect(ix, iy + 66f, 200f, 20f), $"map {layout.mapSize:0} m", UiSkin.Cell);
-            Legend(ix, iy + 100f, new Color(0.55f, 0.9f, 0.5f), "easy camp");
-            Legend(ix, iy + 120f, new Color(1f, 0.7f, 0.25f), "medium camp");
-            Legend(ix, iy + 140f, new Color(0.95f, 0.35f, 0.3f), "hard camp");
-            GUI.Label(new Rect(ix, iy + 170f, 200f, 40f), "You are blue, bottom-left.", UiSkin.Small);
-
-            if (UiSkin.Button(new Rect(preview.xMax + 16f, panel.yMax - 50f, 180f, 36f), "Play  (Enter)", true)) Play();
-        }
-
-        static void Legend(float x, float y, Color color, string text)
-        {
-            UiSkin.Icon(new Rect(x, y + 4f, 12f, 12f), color);
-            GUI.Label(new Rect(x + 18f, y, 180f, 20f), text, UiSkin.Small);
+            if (SocialOverlay.IsOpen || SocialOverlay.IsTyping || !InputShim.CancelPressed) return;
+            if (modal != null) CloseModal();
         }
     }
 }

@@ -2,7 +2,23 @@
 
 Covers prototype priority 1 from GAME_DESIGN.md: one base, a spawner, a rally point, and units walking and fighting. A bot base on the other side of the map fights back so there's something to fight. Gold from kills is counted and shown, but there's nothing to spend it on yet (that's step 4).
 
-Everything is built from code with plain shapes, so there's no scene or prefab setup.
+The match and the Canvas/TextMeshPro home screen are built from code, so there is no scene or prefab setup.
+
+## Home screen
+
+Open `SwarmGame` in Unity and press Play. The screens follow the `commoners-ui` handoff (1600x900 reference, scaled with the window): a splash with the wordmark, tagline and two swarms marching on a ridge, then the home hub.
+
+**Hub layout.** Top bar: logo, HOME / CUSTOMIZE / CLANS / STORE pill (Customize and Store are placeholders; Clans opens the clan chat tab), SETTINGS. Left column: your player card (click it to edit your local username), a party invite card, and the friends panel with add-by-name, search, requests (accept / decline) and In match / Online / Offline groups; each row has message, invite-to-party and a ⋯ menu (invite to clan, remove with confirm). Centre: the live Warrior model on its pedestal, drag to rotate. Right column: chat with Clan, Party and closable DM tabs (Enter or the send button posts), and the play panel: mode (Quick match / Custom / Practice), map size tiles (Duel 2, Small 4, Medium 6, Large 9; the gold cell is your base), party slots (3, crown on the leader) and the PLAY button. Joining Bramblewick's invite makes you a member: the button reads READY and LEAVE PARTY appears.
+
+Friends, chat, party and clan are **local sample data** (`HubState.cs`), kept in memory for the play session and never sent anywhere. Quick match and Custom are **locked** (`ONLINE LOCKED`, with a DETAILS explainer) until authenticated server matches exist; Practice launches the local bot match for the selected map size. M in a match returns home; the hub state survives the round trip.
+
+Settings: Low / Medium / High Unity quality presets, Master / Music / Effects volume (master drives `AudioListener`, the others are stored), EDIT USERNAME, DONE. Usernames go through `LocalPlayerProfile` (3–20 characters) and update the card, your chat lines and the in-match social overlay.
+
+The in-match social overlay (**F6**, `SocialOverlay.cs`) is unchanged and still uses its own seeded demo data; it is hidden while the hub is open.
+
+Type is Archivo (static Expanded / SemiExpanded / normal cuts in `Resources/Fonts`, built into dynamic TextMeshPro font assets at startup). Every sprite the screens use is painted in code (`HubArt.cs`). The project includes uGUI 1.0.0, TextMeshPro 3.0.6 and the TMP essential resources. The source folder remains `SwarmPrototype`; sync it into `SwarmGame/Assets/SwarmPrototype` after changes. Retain `.meta` files when copying assets.
+
+For a focused integration check, stop Play and choose **Commoners > Check home flow** (or touch `SwarmGame/home-menu-check.trigger`). It walks splash, home, friend actions, DM tab, party invite / join / leave, the username editor, the online lock, quality / volume, map selection, launch and return; restores saved settings; and leaves home open. Results go to `Prototype/home-menu-check.log` with `screenshot-home-menu-*.png` next to it. **Check social demo** and **Check profile and ranked** still target the previous home UI and need updating to the hub's control names.
 
 ## Setup (about 2 minutes)
 
@@ -22,7 +38,7 @@ Also on Greater: Spawn Rate (spawn interval ÷ (1 + 10% per level), max 10), Bou
 - **WASD / arrow keys** pan, **scroll** zooms, **Space** jumps back to your base, **E** to the enemy base. The view starts centered on your tower, steep like Warcraft 3.
 - **R** restarts the match.
 
-A start screen picks the player count: 2 (1v1), 4 (2x2), 6 (2x3), 8 (2x4) or 9 (3x3), with a preview of the map it makes. Free-for-all: you are blue in the south-west, bots hold the other bases. Enter plays, M in-game returns to the menu. Each bot gathers round its tower, sends a wave at a random living opponent on a timer, and spends its kill gold in the shop as it goes (cheapest upgrade first). You win when all three enemy towers are down, lose when yours is.
+The home screen's Match Options panel selects 2 (1v1), 4 (2x2), 6 (2x3), 8 (2x4) or 9 (3x3) players. Free-for-all: you are blue in the south-west, bots hold the other bases. The Play button launches the match; M in-game returns home. Each bot gathers round its tower, sends a wave at a random living opponent on a timer, and spends its kill gold in the shop as it goes (cheapest upgrade first). You win when all three enemy towers are down, lose when yours is.
 
 Monster camps are laid out from the grid: one between every four bases (medium or hard), one outside each boundary road (easy; in a 1v1 both sides of the single road are medium/hard), and one behind every base (easy). Each site rolls a template of its tier from nine: Wild Boars, Goblin Scouts, Skeletons (easy); Wolf Pack, Bandit Camp, Troll Hunters (medium); Ogre Den, Stone Golems, Dark Knights (hard). Each monster pays a bounty to whoever kills it, the last one pays a clear bonus. Every spawn is scaled by the match clock, +5% HP, damage and gold per minute (`campScalePerMinute`), shown as +N% on the camp label. Monsters attack anyone who comes close and walk back to camp if lured too far. 30 seconds after the camp is cleared a new random one appears (`campRespawnDelay`). Templates (count, stats, bounty, size) are in `swarm_config.json` under `camps`.
 
@@ -34,6 +50,9 @@ Damage uses flat armor (`damage - armor`, minimum 1), so armor beats many small 
 
 ## Files
 
+- Click your top-left player card, or Settings → Edit Username, to change your local username. Names persist on this device and update the home card, own chat messages and clan roster. Ranked displays Unranked and remains locked until authenticated online matches are integrated. Practice is available normally; it never changes Elo.
+- `Commoners > Check profile and ranked` exercises validation, save/cancel, identity propagation, menu recreation, practice launch and the ranked guard. Existing `Check home flow` and `Check social demo` cover their broader UI paths. The server's Elo/queue checks run with `dotnet run --project Server/Ranking.Tests` from the repository root.
+
 - `Bootstrap.cs` builds the map, both bases, the flag and the camera when you press Play. Set `AutoStart` to false once you have real scenes.
 - `Tower.cs` is a secondary corner tower (four per base, 600 HP, pays 50 gold when destroyed) plus `TowerGun`, the ranged attack both tower types use, and `Bolt`, its projectile. Tower stats are `mainTower` / `secondaryTower` in the config; `attack` 0 makes a tower passive.
 - `Camp.cs` spawns the monster camp and pays the clear bonus.
@@ -43,7 +62,7 @@ Damage uses flat armor (`damage - armor`, minimum 1), so armor beats many small 
 - `EnemyBrain.cs` is the simple bot.
 - `PlayerCommander.cs` handles right-click rally, tower clicks, restart, HUD and health bars.
 - `UnitGear.cs` dresses units to match their team's levels: Strength changes the sword (bronze at 1-5, steel at 6-10, glowing gold at 11+), Armor adds leather / iron / gold pauldrons and a helmet cap at the same brackets, Health grows the model 5% per bracket. Updates on every purchase, for units already alive too.
-- `MapLayout.cs` places bases, roads and camps for a player count and sizes the map; `MainMenu.cs` is the start screen that previews it.
+- `MapLayout.cs` places bases, roads and camps for a player count and sizes the map. `MainMenu.cs` hosts the menu (canvas, prefs, modals, launch); `SplashScreen.cs` and `HomeHub.cs` build the two screens from `HubWidgets.cs` (layout + controls), `HubTheme.cs` (tokens + fonts), `HubArt.cs` (painted sprites) and `HubState.cs` (sample social / play state); `SettingsModal.cs` holds the settings, profile and ranked dialogs. `HomeUnitPreview.cs` owns the isolated character stage; `MenuUi.cs` serves the in-match social overlay.
 - `Icons.cs` paints every icon in code; `FloatingText.cs` is the "+5 coin" popups on kills and the big essence-drop popups.
 - `MiniMap.cs` is the bottom-left overview: terrain, live dots for every unit, tower and monster, the camera's view outline; click to look there, right-click to rally there.
 - `Hud.cs` is the top-left banner (gold, units, Shop button). `ScoreBoard.cs` is the WC3-style stats table top-right (player, level, kills, deaths), Tab to collapse. `SpawnPoof.cs` is the puff and pop-in when a unit appears.

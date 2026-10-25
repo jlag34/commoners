@@ -48,6 +48,7 @@ namespace SwarmPrototype
 
         void LateUpdate()
         {
+            if (SocialOverlay.IsOpen || SocialOverlay.IsTyping) { dragging = false; return; }
             Vector2 pan = InputShim.Pan + EdgePan();
             float speed = PanSpeed * (height / 30f);
             focus += new Vector3(pan.x, 0f, pan.y) * speed * Time.unscaledDeltaTime;

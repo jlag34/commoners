@@ -15,6 +15,9 @@ Prototype/SwarmGame/*.sln
 Prototype/SwarmGame/.vs/
 Prototype/SwarmGame/.idea/
 Prototype/SwarmGame/gearshot.trigger
+Prototype/SwarmGame/home-menu-check.trigger
+Prototype/SwarmGame/profile-ranked-check.trigger
+Prototype/SwarmGame/social-demo-check.trigger
 *.pidb.meta
 *.pdb.meta
 *.mdb.meta

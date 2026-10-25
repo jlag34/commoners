@@ -36,6 +36,7 @@ namespace SwarmPrototype
 
         void Update()
         {
+            if (SocialOverlay.IsOpen || SocialOverlay.IsTyping) return;
             if (cam == null) cam = Camera.main;
 
             if (InputShim.RestartPressed)
@@ -82,7 +83,9 @@ namespace SwarmPrototype
             GameState.Toast?.Invoke($"Debug: gear level {level} (tier {UnitGear.Tier(level)})");
         }
 
-        bool OverUi(Vector2 mouse) => shop.Covers(mouse) || hud.Covers(mouse) || scoreBoard.Covers(mouse) || miniMap.Covers(mouse);
+        bool OverUi(Vector2 mouse) =>
+            (UnityEngine.EventSystems.EventSystem.current != null && UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject())
+            || shop.Covers(mouse) || hud.Covers(mouse) || scoreBoard.Covers(mouse) || miniMap.Covers(mouse);
 
         // Moves the rally flag and sends every unit there.
         void SetRally(Vector3 point)

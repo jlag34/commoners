@@ -9,3 +9,7 @@ All 3D models are free assets released under CC0 1.0 (public domain). Credit isn
 | [Nature Kit](https://kenney.nl/assets/nature-kit) | Kenney | CC0 1.0 | `tree_oak.fbx`, `tree_default.fbx`, `tree_fat.fbx`, `tree_pineRoundA.fbx`, `tree_pineTallA.fbx`, `stone_largeA.fbx`, `stone_largeB.fbx`, `stone_tallA.fbx`, `stone_smallA.fbx`, `plant_bush.fbx`, `plant_bushLarge.fbx`, `grass_large.fbx`, `flower_yellowA.fbx` |
 
 The grass texture is generated in code (`Visuals.cs`).
+
+The home screen uses TextMeshPro 3.0.6 essential resources from Unity's bundled package (Unity Companion License; see `TextMesh Pro/LICENSE.md`). Liberation Sans is distributed under the SIL Open Font License in `TextMesh Pro/Fonts/LiberationSans - OFL.txt`. The bundled EmojiOne sprite attribution is retained in `TextMesh Pro/Sprites/EmojiOne Attribution.txt`.
+
+The home screens use [Archivo](https://github.com/Omnibus-Type/Archivo) by Omnibus-Type (SIL Open Font License 1.1, `Resources/Fonts/Archivo - OFL.txt`): the Expanded ExtraBold, SemiExpanded Bold / ExtraBold and normal Regular / SemiBold / Bold cuts.
