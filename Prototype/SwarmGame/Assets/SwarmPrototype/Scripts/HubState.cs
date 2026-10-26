@@ -34,7 +34,8 @@ namespace SwarmPrototype
         public enum Section { Profile = 1, Invite = 2, Friends = 4, Chat = 8, Play = 16, Settings = 32, All = 63 }
         public event Action<Section> Changed;
 
-        public const int PartySize = 3;
+        // Party capacity (SOC-6): 2 while duos share a castle; 3 and 4 switch on with their dedicated maps. Config-driven later.
+        public static int PartySize = 2;
         public const string ClanName = "Hearthguard", ClanTag = "HRTH";
         // Local display name (LocalPlayerProfile); online identity belongs to the server.
         public static string PlayerName => LocalPlayerProfile.DisplayName;
@@ -42,7 +43,9 @@ namespace SwarmPrototype
 
         public static readonly HubMode[] Modes =
         {
+            // Quick Match = Freeplay (humans first, bots after a long wait); Ranked = human-only matchmaking.
             new HubMode { Id = "quick", Label = "QUICK MATCH", Play = "PLAY", Online = true },
+            new HubMode { Id = "ranked", Label = "RANKED", Play = "PLAY RANKED", Online = true },
             new HubMode { Id = "custom", Label = "CUSTOM", Play = "FIND LOBBY", Online = true },
             new HubMode { Id = "practice", Label = "PRACTICE", Play = "PRACTICE" }
         };
@@ -58,8 +61,8 @@ namespace SwarmPrototype
         {
             new HubFriend { Id = "mudlark", Name = "Mudlark", Status = Presence.InMatch, Detail = "In match · 12 min", Avatar = HubTheme.Hex("3E5F5B"), InClan = true },
             new HubFriend { Id = "tallow", Name = "Tallow", Status = Presence.InMatch, Detail = "In match · 4 min", Avatar = HubTheme.Hex("4A4F66"), InClan = true },
-            new HubFriend { Id = Leader_Bramblewick, Name = "Bramblewick", Status = Presence.Online, Detail = "In a party · 2 of 3", Avatar = HubTheme.Hex("5B4450"), InClan = true },
-            new HubFriend { Id = "millie", Name = "Millie Grist", Status = Presence.Online, Detail = "In a party · 2 of 3", Avatar = HubTheme.Hex("3F5A44"), InClan = true },
+            new HubFriend { Id = Leader_Bramblewick, Name = "Bramblewick", Status = Presence.Online, Detail = "In a party · 1 of " + PartySize, Avatar = HubTheme.Hex("5B4450"), InClan = true },
+            new HubFriend { Id = "millie", Name = "Millie Grist", Status = Presence.Online, Detail = "Online", Avatar = HubTheme.Hex("3F5A44"), InClan = true },
             new HubFriend { Id = "oxcart", Name = "Oxcart", Status = Presence.Online, Detail = "Online", Avatar = HubTheme.Hex("5A4E3A") },
             new HubFriend { Id = "ditchdigger", Name = "Ditchdigger", Status = Presence.Offline, Detail = "Last online 2 days ago", Avatar = HubTheme.Hex("34474A") },
             new HubFriend { Id = "pete", Name = "Pitchfork Pete", Status = Presence.Offline, Detail = "Last online 5 days ago", Avatar = HubTheme.Hex("34474A") }
@@ -83,7 +86,7 @@ namespace SwarmPrototype
                 new HubMessage { System = true, Text = "Tallow joined Hearthguard." },
                 new HubMessage { Who = "Sorrel", Time = "6:09 PM", Text = "Archers every 5th spawn felt way better than healers last night." },
                 new HubMessage { Who = "Millie Grist", Time = "6:11 PM", Text = "Healers are fine if you body block the north gate." },
-                new HubMessage { Who = "Bramblewick", Time = "6:14 PM", Text = "Party is up, it is me and Millie. Who wants the last tower?" }
+                new HubMessage { Who = "Bramblewick", Time = "6:14 PM", Text = "Party is up. Who wants to share my castle?" }
             },
             ["party"] = new List<HubMessage>
             {
@@ -109,7 +112,7 @@ namespace SwarmPrototype
         public int PartyCount => InOtherParty ? PartySize : Party.Count + 1;
         public int OnlineCount => Friends.Count(f => f.Status != Presence.Offline);
         public HubFriend Find(string id) => Friends.FirstOrDefault(f => f.Id == id);
-        public bool InParty(HubFriend f) => InOtherParty ? f.Id == Leader_Bramblewick || f.Id == "millie" : Party.Contains(f.Id);
+        public bool InParty(HubFriend f) => InOtherParty ? f.Id == Leader_Bramblewick : Party.Contains(f.Id);
         public bool CanInvite(HubFriend f) => f.Status == Presence.Online && !InParty(f) && !InOtherParty && Party.Count < PartySize - 1;
         public bool CanMessage(HubFriend f) => f.Status != Presence.Offline;
         // Online modes stay locked until authenticated matches exist (see PROTOCOL.md); practice runs locally.

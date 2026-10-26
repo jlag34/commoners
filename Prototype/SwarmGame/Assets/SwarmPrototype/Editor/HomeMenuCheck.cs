@@ -150,7 +150,7 @@ namespace SwarmPrototype
                     case 10:
                         Require(menu != null && GameObject.Find("Character home") != null, "Return from match opens home");
                         Require(GameObject.Find("Start screen") == null, "Returning skips Start");
-                        Require(menu.State.Party.Contains("oxcart"), "Hub state survives the match");
+                        Require(menu.State.DirectTabs.Contains("oxcart") && menu.State.Friends.Any(f => f.Id == "copperpot"), "Hub state survives the match");
                         Require(Text("Profile username").text == "Rook_27", "Username survives menu recreation");
                         Require(UnityEngine.Object.FindObjectsOfType<HomeUnitPreview>().Length == 1, "One preview after return");
                         Require(UnityEngine.Object.FindObjectsOfType<EventSystem>().Length == 1, "One EventSystem after return");

@@ -261,7 +261,7 @@ namespace SwarmPrototype
             Size(lines, flexWidth: 1);
             var invite = HubTheme.Text(lines, "Invite", "<b>Bramblewick</b> invited you to their party", 14, HubTheme.Cream);
             invite.richText = true;
-            HubTheme.Text(lines, "Detail", "Quick match · Large FFA · 2 of 3", 12, HubTheme.Parchment, HubTheme.Face.Body, 0, TextAlignmentOptions.MidlineLeft, false);
+            HubTheme.Text(lines, "Detail", "Quick match · Large FFA · 1 of " + HubState.PartySize, 12, HubTheme.Parchment, HubTheme.Face.Body, 0, TextAlignmentOptions.MidlineLeft, false);
             var actions = Row(card, "Actions", 8, null, TextAnchor.MiddleLeft);
             Button(actions, "Join party", "JOIN PARTY", ButtonStyle.Gold, () => State.AcceptInvite(), new Spec { Height = 44, Radius = 9, FlexWidth = 1 });
             var decline = Button(actions, "Decline invite", "DECLINE", ButtonStyle.Ghost, () => State.DeclineInvite(), new Spec { Height = 44, Radius = 9, FlexWidth = 1 });
@@ -481,7 +481,10 @@ namespace SwarmPrototype
             {
                 bool selected = mode.Id == State.ModeId;
                 var button = Button(modes, "Mode " + mode.Id, mode.Label, selected ? ButtonStyle.SegmentActive : ButtonStyle.Segment, () => State.SetMode(mode.Id),
-                    new Spec { Height = 40, Radius = 7, FontSize = 11, Tracking = 0.12f, PaddingX = 4, FlexWidth = 1 });
+                    new Spec { Height = 40, Radius = 7, FontSize = 10, Tracking = 0.1f, PaddingX = 4, FlexWidth = 1 });
+                // Four labels in one row: size each from its caption and share the remaining width.
+                var element = button.GetComponent<LayoutElement>();
+                element.preferredWidth = -1; element.minWidth = -1;
                 button.interactable = !State.InOtherParty;
             }
 
@@ -510,8 +513,8 @@ namespace SwarmPrototype
             if (State.InOtherParty)
             {
                 Slot(slots, "B", "Bramblewick, party leader", HubTheme.Hex("5B4450"), HubTheme.Cream, true, null);
-                Slot(slots, "M", "Millie Grist", HubTheme.Hex("3F5A44"), HubTheme.Cream, false, null);
                 Slot(slots, "C", "You", HubTheme.Hex("1D3940"), HubTheme.Gold, false, null);
+                for (int i = 2; i < HubState.PartySize; i++) EmptySlot(slots);
             }
             else
             {

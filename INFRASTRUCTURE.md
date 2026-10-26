@@ -1,6 +1,8 @@
 # Commoners: infrastructure requirements
 
-Everything the game needs that is not playing the match: accounts, social, matchmaking, match hosting, anti-cheat, ranking, progression, store, website, operations, compliance. Written from the design doc (`GAME_DESIGN.md`), the client/server contract (`PROTOCOL.md`), the server skeleton (`Server/`) and the home hub as built on 2026-10-25.
+Everything the game needs that is not playing the match: accounts, social, matchmaking, match hosting, anti-cheat, ranking, progression, store, website, operations, compliance. Written from the design doc (`GAME_DESIGN.md`), the client/server contract (`PROTOCOL.md`), the server skeleton (`Server/`) and the home hub as built on 2026-10-25. Revised the same day after the server agent's review (client-vote desync, duo rating, player vs castle counts, contract drift, party size, respec, reconnect, phasing, runtime, Steam purchases, COPPA).
+
+**`PROTOCOL.md` is the canonical contract.** Where this document names a route or payload, the shape in `PROTOCOL.md` wins; this document lists what the route must guarantee.
 
 Conventions:
 
@@ -8,7 +10,7 @@ Conventions:
 - Every requirement has an id (`ACC-3`, `MM-2`…) so PROTOCOL.md, tickets and tests can reference it.
 - The build order from `GAME_DESIGN.md` still applies: stress test → multiplayer spike → pick the networking model → then everything below beyond what a lobby needs. Sections marked **[after model]** depend on that decision.
 
-Decisions already made that this document inherits: own account system with platform logins as linked identities; .NET 8 minimal API, PostgreSQL, WebSocket for presence; store SKUs and prices defined server-side and fulfilled through each platform's payment rails; Matchmaking is human-only, Freeplay may bot-fill; FFA sizes 2–9 plus shared-castle duos; seasons every few weeks; cosmetics persist across seasons.
+Decisions already made that this document inherits: own account system with platform logins as linked identities; .NET 10 LTS minimal API (`.NET 8` support ends 2026-11-10; the Unity shared-library target is unaffected), PostgreSQL, WebSocket for presence; store SKUs and prices defined server-side and fulfilled through each platform's payment rails; Matchmaking is human-only, Freeplay may bot-fill; FFA sizes 2–9 plus shared-castle duos; seasons every few weeks; cosmetics persist across seasons.
 
 ---
 
@@ -20,6 +22,8 @@ Decisions already made that this document inherits: own account system with plat
 - **P-4 Boring, testable, one command to run locally.** `docker compose up` (Postgres + API + a match host) and every domain rule has an executable test, like `Server/Ranking.Tests`.
 - **P-5 Cross-play and cross-progression from day one.** No table, endpoint or store flow may assume a single platform.
 - **P-6 Fail safe for the player.** Any outage degrades to local practice. Nothing a player paid for can be lost because a service was down.
+- **P-7 Match state is temporary, account state is permanent, and they never mix.** Gold, skulls, essences, purchases and the chosen special live only inside a match and die with it. Account rewards (XP, chests, pass progress, cosmetics) are granted by the result transaction from server-known facts. No endpoint moves value from one side to the other.
+- **P-8 Mock screens do not create requirements.** The hub shows friends, chat, clans and a store with sample data; a backend feature becomes mandatory when its phase (section 17) says so, not because the client already has a panel for it.
 
 ---
 
@@ -34,7 +38,7 @@ Decisions already made that this document inherits: own account system with plat
 | ACC-5 | MUST | Display names: 3–20 chars, letters / digits / space / `_` / `-` (matches `LocalPlayerProfile.Validate`), unique case-insensitively **or** suffixed with a discriminator (`Copperpot#2210`, the friend-code format the hub already shows). Pick one; the friend code implies the discriminator. Profanity filter, rename cooldown (e.g. 30 days), name history kept for moderation. |
 | ACC-6 | MUST | Profile read: `GET /v1/profile` returns name, avatar/initial, clan tag, rating summary, owned cosmetics summary, settings blob (see ACC-9). |
 | ACC-7 | SHOULD | Account deletion and data export (GDPR / CCPA): request, 30-day grace, then purge PII while keeping anonymised match rows. |
-| ACC-8 | SHOULD | Age gate at account creation (date of birth or platform age); under-13 (or regional threshold) accounts get chat, purchases and friend requests disabled (COPPA). |
+| ACC-8 | SHOULD | Age gate at account creation (date of birth or platform age, non-leading, no retry on the same device). Under the COPPA / regional threshold the account is **not created** and no personal data is kept, unless and until a verifiable-parental-consent flow exists. Disabling chat and purchases is not compliance; collecting the data at all is the regulated act. |
 | ACC-9 | SHOULD | Cloud-synced settings (graphics tier, volumes, keybinds, hub preferences) so cross-progression carries settings, with device-local override. |
 | ACC-10 | LATER | Two-factor for email-linked accounts; login alerts on new device. |
 
@@ -53,7 +57,7 @@ The hub already presents friends with In match / Online / Offline groups, reques
 | SOC-3 | MUST | Presence over the WebSocket: `offline / online / in hub / in queue / in match (elapsed) / in party (n of 3)`. Presence is fan-out to friends only, debounced (≤1 update/sec per account). |
 | SOC-4 | MUST | Chat channels: direct (friend pairs), party, clan. Messages are stored server-side (DM/party: last 200 per channel, 30 days; clan: 500, 30 days) so tabs rehydrate after a restart and moderation can read them. Max 500 chars, rate limit 5/5s, markup is never interpreted (the client already renders chat as literal text). |
 | SOC-5 | MUST | Chat is unavailable between non-friends and to under-age or chat-banned accounts. Profanity filter configurable per region. |
-| SOC-6 | MUST | Parties: create, invite (only online friends, only by the leader, only while a slot is free, max 3 now, 4 LATER), accept, decline, leave, kick, transfer leader. Party state is pushed to every member. The leader chooses mode and map size and queues; members see READY and must ready up before the leader can queue. |
+| SOC-6 | MUST | Parties: create, invite (only online friends, only by the leader, only while a slot is free), accept, decline, leave, kick, transfer leader. **Capacity is a config value (`partySize`), 2 at first** (a duo shares a castle); 3 and 4 switch on when their dedicated maps exist. The client renders `partySize` slots. Party state is pushed to every member. The leader chooses mode and map size and queues; members see READY and must ready up before the leader can queue. |
 | SOC-7 | MUST | Party invite expires (60 s), one outstanding invite per target, invites are dropped if the inviter enters a match. |
 | SOC-8 | SHOULD | Report player (from chat, match, clan) with reason and message ids; feeds moderation (section 12). |
 | SOC-9 | SHOULD | Notifications feed (friend request, party invite, clan invite, chest ready, season start) with read state, so the client never has to poll. |
@@ -82,17 +86,25 @@ Validation: all name/tag rules enforced server-side with the same regexes the cl
 
 ## 5. Matchmaking and lobbies
 
-Modes and rules from the design doc: **Freeplay** (humans first, bot fill after a wait threshold) and **Matchmaking** (human only, ranked). FFA sizes 2–9, duos share a castle, random castle assignment, parties stay together.
+Modes and rules from the design doc: **Freeplay** (humans first, bot fill after a wait threshold) and **Matchmaking** (human only, ranked). FFA sizes 2–9, duos share a castle, random castle assignment, parties stay together. In the hub: **Quick Match = Freeplay**, **Ranked = Matchmaking** (its own entry), **Custom** = private lobby, **Practice** = local bots.
+
+**Definitions (used by every payload below):**
+
+- **Player slot** `slot`: one per human or bot in the roster, 0-based, unique within the match.
+- **Castle** `castle`: one base on the grid; a solo player owns one, a duo party shares one. `team` equals `castle`.
+- **Castle count** = number of castles = the map size (2–9). This is what a queue ticket's `size` and a map tile mean.
+- **Player count** = number of slots = solo players + 2 × duos. Four players can be four solo castles (size 4) or two duo castles (size 2); the ticket's `size` disambiguates.
+- **Valid compositions** now: every castle is a solo player, a bot, or a duo party. Mixed solo/duo lobbies are allowed in Freeplay and Custom; Ranked queues solos with solos and duos with duos (MM-3). Threes and fours are not valid until their maps exist.
 
 | Id | Req | Requirement |
 |---|---|---|
 | MM-1 | MUST | Queue ticket: `{ accountIds[] (party), mode, size, region, partyRating, createdAt }`. One ticket per account; queueing while in a match is rejected. Ticket state is pushed over the WebSocket (`searching / found / allocating / starting / cancelled`). |
 | MM-2 | MUST | Freeplay: fill a size-N match from compatible tickets in the same region; after `freeplayBotFillSeconds` (config, to be tuned) start with bots in the empty slots (`isBot: true` in the setup). Blocked players are never placed together. |
 | MM-3 | MUST | Matchmaking (ranked): human only, rating window starts at 100 and widens 5/s to 400 (from `Server/Ranking`), party rating = max member rating (anti-smurf) and parties only face parties of the same size, never bots. If the queue is too thin, keep searching; never degrade to bots. |
-| MM-4 | MUST | Duo handling: a party of two occupies one castle slot and both players appear in the roster with the same `castle`. Castle count = solo players + parties. Team ids are per castle. |
+| MM-4 | MUST | Duo handling: a party of two occupies one castle and both players appear in the roster with their own `slot` and the same `castle`. A duo keeps separate armies, currencies and builds (design doc); only the base is shared. |
 | MM-5 | MUST | Custom lobbies: `POST /v1/lobbies` creates an invite-only lobby (the hub's "Custom → FIND LOBBY"); host sets size and bot fill; everyone readies; host starts. Lobby state as already defined in PROTOCOL.md. Custom matches are unrated. |
-| MM-6 | MUST | Match setup payload (PROTOCOL.md shape, game agent owns it): `matchId`, `seed`, `configVersion`, `playerCount`, `players[{ slot, accountId, displayName, team, isBot }]`, plus `castle` per player and `mode`. Castle assignment is random on the server; clients never choose. |
-| MM-7 | MUST | Reconnect: a disconnected player can rejoin the same match for `reconnectGraceSeconds` (e.g. 120); after that the slot is marked forfeit (section 8). Queue tokens and match tokens survive a client restart. |
+| MM-6 | MUST | Match setup payload (shape in PROTOCOL.md, game agent owns it): `matchId`, `seed`, `configVersion`, `mode`, `castleCount`, `playerCount`, `players[{ slot, accountId, displayName, castle, team, isBot }]`. Castle assignment is random on the server; clients never choose. |
+| MM-7 | MUST | Reconnect: a disconnected player can rejoin the same match for `reconnectGraceSeconds` (e.g. 120); after that the slot is marked forfeit (section 7). The full flow is HOST-6. Queue tickets survive a client restart. |
 | MM-8 | SHOULD | Regions: at least NA-East, NA-West, EU, with ping-based selection; cross-region fallback after a wait in Freeplay only. |
 | MM-9 | SHOULD | Queue telemetry: time to match, bot-fill rate, size distribution, dodge rate, so the Freeplay threshold and the 3/5/7 sizes can be tuned with data. |
 | MM-10 | SHOULD | Dodge / leave penalties: leaving a found ranked match before start increments a timed queue lock (5, 15, 60 min). |
@@ -106,11 +118,12 @@ Two candidate models, decided by the spike. Infrastructure requirements for each
 
 | Id | Req | Requirement |
 |---|---|---|
-| HOST-1 | MUST | A match allocator: given a ready ticket group, picks a region, spins up or reserves a match host, hands the client a `{ matchId, host, port, matchToken }`. The match token is signed, single-use, bound to `accountId` + `matchId`, 60 s to connect. |
+| HOST-1 | MUST | A match allocator: given a ready ticket group, picks a region, spins up or reserves a match host, hands the client a `{ matchId, host, port, joinToken }`. The join token is signed, single-use, bound to `accountId` + `matchId`, 60 s to connect. Reconnects use HOST-6, not this token. |
 | HOST-2 | MUST | Match host registration: hosts hold service credentials (mTLS or a signed service JWT) and report `allocated / running / finished / crashed` to the API. The API only accepts match results from the host that was allocated that `matchId` (`authenticatedServerId`, as the ranking prototype already requires). |
 | HOST-3 | MUST | Fleet: start with a fixed pool of small VMs per region running N hosts each; autoscale on queue depth LATER. Target cost per match-hour is a tracked metric. |
 | HOST-4 | MUST | Config pinning: the host and every client load the same `configVersion` (section 10); mismatch aborts the join with a clear "update required" error. |
 | HOST-5 | SHOULD | Spectator / observer slot for moderation and for recording replays. |
+| HOST-6 | MUST | Reconnect flow: while a slot is inside its grace window the client calls the API with its account session and gets a fresh single-use `reconnectToken` for the same `matchId`; the host validates it, replaces the dead connection, and restores that player's full state: army, rally point, currencies, purchase ledger, special choice and frequency, consumables used and the once-per-match respec flag. Under lockstep this is an input-log catch-up; under server authority a state snapshot. |
 
 **If server-authoritative** (server simulates, clients send commands and render):
 
@@ -127,7 +140,7 @@ Two candidate models, decided by the spike. Infrastructure requirements for each
 |---|---|---|
 | LS-1 | MUST | A deterministic simulation (fixed-point or carefully fenced float math, no Rigidbody/NavMesh nondeterminism); this is the `Unit.cs` rewrite the design doc defers until the profile says so. |
 | LS-2 | MUST | Input relay server: receives each player's inputs per tick, broadcasts the ordered input set, stores the full input log. Tiny bandwidth; latency = round trip + tick delay. |
-| LS-3 | MUST | Result verification: the server replays the stored inputs with the same seed and config in a headless sim and derives placements itself. Client-reported placements are only a hint. Desync detection via periodic state hashes from every client; a desynced client is dropped and the majority hash wins. |
+| LS-3 | MUST | Result verification: the server replays the stored inputs with the same seed and config in a headless sim and derives placements itself. Client-reported placements are only a hint. Desync detection via periodic state hashes from every client, compared against the **server's own simulation hash**; the clients that disagree with the server are the desynced ones. Clients never vote: a majority of colluding clients must not be able to eject an honest player. If the server cannot run the live sim fast enough to arbitrate, finish the match **unrated** and flag it rather than dropping anyone. |
 | LS-4 | MUST | Replays come free from the input log; keep them 30 days (ranked) for disputes and highlights. |
 
 Either way: the **client never reports kills, gold, damage, spawns or placement as facts** (P-1). Under lockstep the server recomputes; under server-authoritative it already knows.
@@ -138,10 +151,11 @@ Either way: the **client never reports kills, gold, damage, spawns or placement 
 
 | Id | Req | Requirement |
 |---|---|---|
-| RES-1 | MUST | Result payload is produced by the host (SA) or by server replay (LS): `{ matchId, mode, size, configVersion, durationSeconds, placements[{ accountId, castle, placement, eliminatedAt }], perPlayer[{ kills, deaths, gold, skulls, essences, upgrades[], special, consumables[] }] }`. The `POST /v1/matches/{id}/result` in PROTOCOL.md becomes host-to-API, not client-to-API. |
+| RES-1 | MUST | Result payload is produced by the host (SA) or by server replay (LS) and posted host-to-API on the internal route PROTOCOL.md defines (`/internal/v1/matches/{id}/result`), never by a client. Content: `{ matchId, mode, castleCount, configVersion, durationSeconds, castles[{ castle, placement, eliminatedAt }], players[{ slot, accountId, castle, forfeited, kills, deaths, gold, skulls, essences, upgrades[], special, consumables[] }] }`. Every per-player entry carries `slot` and `accountId` (null for bots). |
 | RES-2 | MUST | Idempotent: the same result twice returns the same rating changes; a conflicting result for the same `matchId` is rejected and alerted (already in `Server/Ranking`). |
 | RES-3 | MUST | One database transaction per match: unique match-result row + every rating update + every reward grant. |
-| RES-4 | MUST | Elo as prototyped: start 1000, display Unranked until the first completed ranked match, K=32, pairwise average by placement, zero-sum, fractional storage, round on display, ties by competition ranking. Rated only for Matchmaking; Freeplay, Custom and Practice never touch rating. |
+| RES-4 | MUST | Solo ranked FFA: Elo as prototyped in `Server/Ranking`: start 1000, display Unranked until the first completed ranked match, K=32, pairwise average by placement, zero-sum, fractional storage, round on display, ties by competition ranking. Rated only for Ranked; Freeplay, Custom and Practice never touch rating. |
+| RES-4b | MUST | Duo ranked: scoring is **castle versus castle**, never player versus player (the solo formula would compare allies and can dock a winner). Each castle gets one rating used in the pairwise comparison and both members receive that castle's delta. How a castle's rating is derived from its members (average is the proposed rule) is **provisional until playtested**; keep it a config choice. If one ally forfeits while the shared castle survives, the castle's placement stands for both; the forfeiting account additionally takes the forfeit penalty and queue lock (RES-5, MM-10). |
 | RES-5 | MUST | Forfeit policy: a player disconnected past the grace (MM-7) is placed last among the remaining players at the moment of forfeit; repeated forfeits add queue locks (MM-10). |
 | RES-6 | SHOULD | Match history: `GET /v1/profile/matches` (last 50), per-match detail for the results screen, and a public share link LATER. |
 | RES-7 | SHOULD | Leaderboards per season and region (top 100 cached, player rank by query), updated by the result transaction, not by a cron. |
@@ -159,8 +173,9 @@ What is protected: ratings, currencies, entitlements, progression, cosmetics, an
 | AC-1 | MUST | **All grants originate server-side**: match rewards from RES-1, chests from a server timer, battle-pass progress from server-counted XP, purchases from verified receipts. There is no "add currency" endpoint for clients. |
 | AC-2 | MUST | **Authoritative match outcome** per section 6; clients cannot submit results. Practice matches (bots, offline) report nothing and grant nothing beyond flat, capped participation XP if any. |
 | AC-3 | MUST | **Signed config.** The balance/config bundle is signed by the server; the client refuses to start an online match with a tampered or mismatched `configVersion` (HOST-4). Local edits to `swarm_config.json` only affect Practice. |
-| AC-4 | MUST | **Pre-match loadout is server-stored.** Perks (4 slots) and talent spec are chosen in the hub, saved via API, and included in the match setup by the server; the client never sends its loadout to the host. |
-| AC-5 | MUST | **Input sanity on the host / relay**: command rate limits per tick, rally positions inside the map bounds, purchases only from the live price table, consumables respecting once-per-match and cooldowns, no commands for units you do not own (duo ally armies stay separate), no commands after elimination. |
+| AC-4 | SHOULD | **Pre-match loadout is server-stored.** When perks and talents exist (deferred in the design doc) they are chosen in the hub, saved via API, and included in the match setup by the server; the client never sends its loadout to the host. The principle is fixed now; the feature is not required for the first online test. |
+| AC-5 | MUST | **Input sanity on the host / relay**: command rate limits per tick, rally positions inside the map bounds, purchases only from the match's **pinned config** price table, consumables respecting once-per-match and cooldowns, no commands for units you do not own (duo ally armies stay separate), no commands after elimination. |
+| AC-5b | MUST | **Purchase ledger and full respec.** The host keeps, per player, every purchase with the exact price paid at that level (gold, skulls, essences). The once-per-match full respec is one atomic operation: verify the respec item was bought and unused, reset upgrades / special / frequency, refund exactly the ledger totals into the player's match balances, mark the respec used. Requests carry an idempotency key so a retry cannot refund twice; the used flag and the ledger survive reconnects (HOST-6). Already-used consumables are not refunded unless the design decides otherwise. None of this touches account state (P-7). |
 | AC-6 | MUST | **Session binding**: match token tied to account + match; one connection per account per match; a second connection kicks the first and is logged. |
 | AC-7 | MUST | **Rate limiting and abuse controls** on every endpoint (per IP and per account), request body size caps, WebSocket message caps, idempotency keys on all writes. |
 | AC-8 | SHOULD | **Client integrity (defence in depth, not trust)**: Steam ticket + VAC/ban status check at login; build version and hash reported and gated (old builds get "update required"); console platforms enforce their own integrity. Never rely on this instead of server validation. |
@@ -207,7 +222,7 @@ Platform rails (Steam, App Store, Google Play, later PSN / Xbox, ~30% each), SKU
 | Id | Req | Requirement |
 |---|---|---|
 | STO-1 | SHOULD | Catalog: SKUs with per-platform product ids and prices, region pricing, availability windows, bundle contents; served via `GET /v1/store`. |
-| STO-2 | SHOULD | Purchase flow: client buys through the platform, sends the receipt / order id; the server verifies with the platform (Steam Microtransactions `FinalizeTxn`, App Store Server API, Google Play Developer API), records the transaction, writes grants (PROG-7). Receipts are verified exactly once; replays are idempotent. |
+| STO-2 | SHOULD | Purchase flow is **server-initiated**. Steam: the server calls `InitTxn` with the SKU and price, the player approves in the Steam overlay, Steam notifies the server, the server calls `FinalizeTxn` and only then writes grants. Apple / Google: the client completes the platform purchase and sends the transaction id; the server verifies it with the App Store Server API / Google Play Developer API before granting. Every transaction is recorded with the platform order id; verification happens exactly once and replays are idempotent (PROG-7). |
 | STO-3 | SHOULD | Refund and chargeback handling: platform webhooks revoke grants; consumed items leave a negative balance that must be settled before new purchases. |
 | STO-4 | SHOULD | Premium currency ledger (if a soft currency exists): all credits/debits in one ledger with balances as projections; tax/VAT handled by the platforms. |
 | STO-5 | SHOULD | Cosmetics inventory and equip state per account; equipped cosmetics appear in the match setup so other clients can render them. |
@@ -281,7 +296,8 @@ What the Unity client needs from all of the above, so the hub stops using sample
 | Friends groups, requests, add by name/code | SOC-1, SOC-2, SOC-3 |
 | DM / party / clan chat tabs | SOC-4, CLN-5 |
 | Party invite card, slots, READY / LEAVE | SOC-6, SOC-7 |
-| Mode (Quick match = Matchmaking, Custom = lobby, Practice = local) | MM-3, MM-5, local only |
+| Mode: Quick Match = Freeplay, Ranked = Matchmaking, Custom = lobby, Practice = local | MM-2, MM-3, MM-5, local only |
+| Party slots (count = `partySize`, 2 at first) | SOC-6 |
 | Map size tiles → `size` | MM-1 |
 | PLAY / FIND LOBBY / READY | MM-1, MM-5, SOC-6 |
 | Settings sync, username | ACC-9, ACC-5 |
@@ -295,15 +311,19 @@ API surface (grouped, final shapes in PROTOCOL.md): `/v1/auth/*`, `/v1/profile`,
 
 ## 17. Phasing
 
-1. **Prove the match** (already the plan): stress test, multiplayer spike, choose the networking model. Infrastructure work in parallel that does not depend on the model: ACC-1…6, SOC-1…7, MM-1, MM-5, MM-6, CFG-1…2, OPS-1…5, LEG-1…3.
-2. **First online tests with friends**: HOST-1…4 for the chosen model, MM-2, MM-7, RES-1…5, AC-1…7.
-3. **Steam launch**: everything marked SHOULD, in this order: ranking + leaderboards, seasons + progression, store, clans, moderation, website, load testing, runbooks.
-4. **After launch**: LATER items, mobile store review requirements, console certification.
+1. **Prove the match** (already the plan): stress test, multiplayer spike, choose the networking model. Infrastructure work in parallel that does not depend on the model: ACC-1…4 (login, link, sessions), SOC-6…7 (parties of two only), MM-1, MM-5, MM-6, CFG-1…2, OPS-1…5, LEG-1…3.
+2. **First playable online test** (friends, one region): HOST-1…4 and HOST-6 for the chosen model, MM-2 (Freeplay), MM-7, RES-1…3, AC-1…3, AC-5…7. No friends list, chat, clans, ranking, progression or store: invite by party code is enough.
+3. **Ranked beta**: MM-3, RES-4…5, RES-7, AC-9…11, SOC-1…5 (friends, presence, chat), MOD-1…4.
+4. **Steam launch**: the remaining SHOULD items: seasons + progression, store, clans, website, load testing, runbooks, compliance review.
+5. **After launch**: LATER items, parties of three and four with their maps, mobile store review requirements, console certification.
+
+MUST / SHOULD tags above still describe the launch bar; this list is the order of work.
 
 ## 18. Open decisions
 
 - Networking model (drives section 6 and the `Unit.cs` rewrite).
 - Display-name uniqueness vs discriminator (ACC-5).
+- Duo castle rating rule (RES-4b): average is proposed, needs playtesting.
 - Freeplay bot-fill threshold and whether Freeplay affects any visible rating (it should not).
 - Whether a soft currency exists at all, or everything is cosmetics + pass + talent acceleration (STO-4).
 - Hosting provider and regions for the first external test.
