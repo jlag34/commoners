@@ -555,7 +555,9 @@ namespace SwarmPrototype
         {
             rect = (RectTransform)transform;
             origin = rect.anchoredPosition;
-            group = GetComponent<CanvasGroup>() ?? gameObject.AddComponent<CanvasGroup>();
+            // Not `??`: Unity's missing-component result is a fake null that `??` does not catch.
+            group = GetComponent<CanvasGroup>();
+            if (group == null) group = gameObject.AddComponent<CanvasGroup>();
             start = Time.unscaledTime;
             Apply(0);
         }
