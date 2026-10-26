@@ -12,6 +12,8 @@ namespace SwarmPrototype
         const float ToastLife = 4f;
 
         public Rect Panel { get; private set; }
+        // True on the frame the Menu button was clicked.
+        public bool MenuClicked { get; private set; }
 
         readonly List<(string text, float until)> toasts = new List<(string, float)>();
         string tooltip;
@@ -39,7 +41,7 @@ namespace SwarmPrototype
             int units = mine != null ? mine.AliveUnits : 0;
             tooltip = null;
 
-            Panel = new Rect(12f, 12f, 560f, Height);
+            Panel = new Rect(12f, 12f, 640f, Height);
             UiSkin.Panel(Panel);
             Vector2 mouse = Event.current.mousePosition;
 
@@ -59,14 +61,16 @@ namespace SwarmPrototype
             if (new Rect(unitsStart, Panel.y, x - unitsStart, Panel.height).Contains(mouse))
                 tooltip = cap > 0 ? "Units alive / max. One spawns every few seconds until the cap; buy Unit Count in the shop to raise it." : "Units alive. One spawns every few seconds; no cap.";
 
-            var shopRect = new Rect(Panel.xMax - 86f, Panel.y + 6f, 76f, Height - 12f);
+            var menuRect = new Rect(Panel.xMax - 78f, Panel.y + 6f, 68f, Height - 12f);
+            MenuClicked = UiSkin.Button(menuRect, "Menu  (Esc)");
+            var shopRect = new Rect(menuRect.x - 84f, Panel.y + 6f, 76f, Height - 12f);
             bool clicked = UiSkin.Button(shopRect, shopOpen ? "Close" : "Shop  (B)", shopOpen);
 
             DrawTooltip();
             DrawToasts();
 
             GUI.Label(new Rect(232f, Screen.height - 20f, Screen.width - 244f, 16f),
-                "Right-click: rally point    B / click tower: shop    Tab: stats    WASD, edge, middle-drag: pan    Scroll: zoom    Space: home    E: next enemy    Minimap: click to look, right-click to rally    R: restart    M: menu", UiSkin.Small);
+                "Right-click: rally point    B / click tower: shop    Tab: players    WASD, edge, middle-drag: pan    Scroll: zoom    Space: home    E: next enemy    Minimap: click to look, right-click to rally    R: restart    Esc: menu", UiSkin.Small);
             return clicked;
         }
 
