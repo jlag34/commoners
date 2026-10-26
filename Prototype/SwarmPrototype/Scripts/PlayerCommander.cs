@@ -18,6 +18,7 @@ namespace SwarmPrototype
         readonly Hud hud = new Hud();
         readonly ScoreBoard scoreBoard = new ScoreBoard();
         readonly MiniMap miniMap = new MiniMap();
+        readonly PauseMenu pause = new PauseMenu();
         bool debug;
 
         public void Init(Spawner[] bases, Transform flag, MapLayout layout)
@@ -32,7 +33,11 @@ namespace SwarmPrototype
             // No rally point at the start: the flag appears on the first right-click.
             flag.gameObject.SetActive(playerBase.RallyPoint.HasValue);
             if (playerBase.RallyPoint.HasValue) flag.position = playerBase.RallyPoint.Value;
+            Time.timeScale = 1f;
         }
+
+        // A match torn down while paused must not leave the home screen frozen.
+        void OnDestroy() => Time.timeScale = 1f;
 
         void Update()
         {
@@ -41,16 +46,26 @@ namespace SwarmPrototype
 
             if (InputShim.RestartPressed)
             {
-                Bootstrap.Restart();
+                pause.Restart();
                 return;
             }
             if (InputShim.MenuPressed)
             {
-                Bootstrap.ShowMenu();
+                pause.QuitToHome();
                 return;
             }
 
-            if (InputShim.CancelPressed) shop.Open = false;
+            if (pause.Open)
+            {
+                if (InputShim.CancelPressed) pause.Hide();
+                return;
+            }
+            // Esc closes the shop first; with nothing open it brings up the pause menu.
+            if (InputShim.CancelPressed)
+            {
+                if (shop.Open) shop.Open = false;
+                else pause.Show();
+            }
             if (InputShim.ShopPressed) shop.Open = !shop.Open;
             if (InputShim.StatsPressed) scoreBoard.Open = !scoreBoard.Open;
             if (InputShim.DebugPressed) debug = Unit.DebugDraw = !debug;
@@ -85,7 +100,7 @@ namespace SwarmPrototype
 
         bool OverUi(Vector2 mouse) =>
             (UnityEngine.EventSystems.EventSystem.current != null && UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject())
-            || shop.Covers(mouse) || hud.Covers(mouse) || scoreBoard.Covers(mouse) || miniMap.Covers(mouse);
+            || pause.Covers(mouse) || shop.Covers(mouse) || hud.Covers(mouse) || scoreBoard.Covers(mouse) || miniMap.Covers(mouse);
 
         // Moves the rally flag and sends every unit there.
         void SetRally(Vector3 point)
@@ -151,6 +166,7 @@ namespace SwarmPrototype
                 }
             }
             if (hud.Draw(playerBase, shop.Open)) shop.Open = !shop.Open;
+            if (hud.MenuClicked && !pause.Open) { shop.Open = false; pause.Show(); }
             scoreBoard.Draw(bases);
             DrawCampLabel();
             if (debug) DrawDebug();
@@ -161,8 +177,12 @@ namespace SwarmPrototype
                     bigLabel = new GUIStyle(GUI.skin.label) { fontSize = 48, alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold };
                 string text = GameState.Winner == GameState.PlayerTeam ? "Victory" : "Defeat";
                 GUI.Label(new Rect(0, Screen.height * 0.3f, Screen.width, 80), text, bigLabel);
-                GUI.Label(new Rect(0, Screen.height * 0.3f + 70, Screen.width, 30), "Press R to play again", new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleCenter });
+                float y = Screen.height * 0.3f + 90f;
+                if (UiSkin.Button(new Rect(Screen.width * 0.5f - 150f, y, 140f, 34f), "Play again  (R)")) pause.Restart();
+                if (UiSkin.Button(new Rect(Screen.width * 0.5f + 10f, y, 140f, 34f), "Quit to home  (M)")) pause.QuitToHome();
             }
+
+            pause.Draw();
         }
 
         // F1: each unit's brain state over its head, for chasing down stuck units.
