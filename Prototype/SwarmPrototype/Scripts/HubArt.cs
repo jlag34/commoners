@@ -300,7 +300,9 @@ namespace SwarmPrototype
 
             public void DashedRoundedBorder(float x, float y, float width, float height, float radius, float stroke, float dash, float gap, Color c)
             {
-                // Walk the perimeter (straight runs and quarter arcs) and stroke only the dash intervals.
+                // Perimeter as a polyline (straight runs and quarter arcs), then resample it at a fixed step and
+                // stroke the samples that fall inside a dash. Bounded for-loops only: an earlier version walked the
+                // path with float accumulation and could spin forever when a tiny remainder was absorbed by `+=`.
                 var path = new List<Vector2>();
                 void Corner(float cx, float cy, float a0)
                 {
@@ -315,23 +317,32 @@ namespace SwarmPrototype
                 Corner(x + radius, y + height - radius, 90);
                 Corner(x + radius, y + radius, 180);
                 path.Add(path[0]);
-                float travelled = 0;
-                for (int i = 0; i < path.Count - 1; i++)
+                var cumulative = new float[path.Count];
+                for (int i = 1; i < path.Count; i++) cumulative[i] = cumulative[i - 1] + Vector2.Distance(path[i - 1], path[i]);
+                float total = cumulative[path.Count - 1], period = Mathf.Max(0.01f, dash + gap);
+                Vector2 PointAt(float s)
                 {
-                    var a = path[i]; var b = path[i + 1];
-                    float len = Vector2.Distance(a, b), pos = 0;
-                    while (pos < len)
-                    {
-                        float phase = (travelled + pos) % (dash + gap);
-                        float run = phase < dash ? Mathf.Min(dash - phase, len - pos) : Mathf.Min(dash + gap - phase, len - pos);
-                        if (phase < dash)
+                    for (int i = 1; i < path.Count; i++)
+                        if (s <= cumulative[i])
                         {
-                            var p0 = Vector2.Lerp(a, b, pos / len); var p1 = Vector2.Lerp(a, b, (pos + run) / len);
-                            Stroke(p0.x, p0.y, p1.x, p1.y, stroke, c);
+                            float len = cumulative[i] - cumulative[i - 1];
+                            return len <= 1e-5f ? path[i] : Vector2.Lerp(path[i - 1], path[i], (s - cumulative[i - 1]) / len);
                         }
-                        pos += run;
-                    }
-                    travelled += len;
+                    return path[path.Count - 1];
+                }
+                bool On(float s) => s % period < dash;
+                const float step = 0.25f;
+                int samples = Mathf.Clamp(Mathf.CeilToInt(total / step), 1, 4096);
+                var prev = PointAt(0);
+                bool prevOn = On(0);
+                for (int i = 1; i <= samples; i++)
+                {
+                    float s = Mathf.Min(total, i * step);
+                    var point = PointAt(s);
+                    bool on = On(s);
+                    if (on && prevOn) Stroke(prev.x, prev.y, point.x, point.y, stroke, c);
+                    prev = point;
+                    prevOn = on;
                 }
             }
 
