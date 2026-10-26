@@ -410,13 +410,15 @@ namespace SwarmPrototype
                 var friend = State.Find(id);
                 tabs.Add((id, (friend != null ? friend.Name : id).ToUpperInvariant(), true));
             }
+            // Two direct tabs plus the fixed pair fill the strip; tighten the type so four still fit.
+            bool crowded = tabs.Count > 3;
             foreach (var tab in tabs)
             {
                 bool selected = tab.id == State.ChatTab;
                 var wrap = Column(chatTabs, "Tab " + tab.id, 0, null, TextAnchor.LowerLeft, false);
                 var row = Row(wrap, "Row", 0, null, TextAnchor.MiddleLeft, false, false);
                 var button = Button(row, "Select " + tab.id, tab.label, ButtonStyle.Segment, () => State.SelectTab(tab.id),
-                    new Spec { Height = 44, PaddingX = 12, Radius = 6, FontSize = 12, Tracking = 0.14f, Face = HubTheme.Face.Wide });
+                    new Spec { Height = 44, PaddingX = crowded ? 8 : 12, Radius = 6, FontSize = crowded ? 11 : 12, Tracking = crowded ? 0.08f : 0.14f, Face = HubTheme.Face.Wide });
                 var tint = button.GetComponent<HubHover>();
                 tint.Hover = Color.clear;
                 tint.NormalText = selected ? HubTheme.Cream : HubTheme.Tertiary; tint.HoverText = HubTheme.Cream; tint.Label.color = tint.NormalText;
@@ -474,17 +476,17 @@ namespace SwarmPrototype
         {
             Clear(playBody);
 
-            // Mode
-            var modes = Row(playBody, "Mode", 4, Pad(4, 4), TextAnchor.MiddleLeft);
+            // Mode: four entries as a 2x2 grid so the captions keep the segment type size.
+            var modes = Column(playBody, "Mode", 4, Pad(4, 4));
             Background(modes, HubTheme.Track, 10);
-            foreach (var mode in HubState.Modes)
+            RectTransform modeRow = null;
+            for (int i = 0; i < HubState.Modes.Length; i++)
             {
+                if (i % 2 == 0) modeRow = Row(modes, "Mode row " + (i / 2), 4, null, TextAnchor.MiddleLeft);
+                var mode = HubState.Modes[i];
                 bool selected = mode.Id == State.ModeId;
-                var button = Button(modes, "Mode " + mode.Id, mode.Label, selected ? ButtonStyle.SegmentActive : ButtonStyle.Segment, () => State.SetMode(mode.Id),
-                    new Spec { Height = 40, Radius = 7, FontSize = 10, Tracking = 0.1f, PaddingX = 4, FlexWidth = 1 });
-                // Four labels in one row: size each from its caption and share the remaining width.
-                var element = button.GetComponent<LayoutElement>();
-                element.preferredWidth = -1; element.minWidth = -1;
+                var button = Button(modeRow, "Mode " + mode.Id, mode.Label, selected ? ButtonStyle.SegmentActive : ButtonStyle.Segment, () => State.SetMode(mode.Id),
+                    new Spec { Height = 38, Radius = 7, FontSize = 11, Tracking = 0.12f, PaddingX = 8, FlexWidth = 1 });
                 button.interactable = !State.InOtherParty;
             }
 
