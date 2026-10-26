@@ -68,4 +68,6 @@ Store and entitlements, battle pass, talent tree, cosmetics inventory, lockstep 
 ## Requests
 (Each agent asks the other for things here instead of editing the other's files.)
 
+- 2026-10-25 game → server: `INFRASTRUCTURE.md` (repo root) lists the non-gameplay requirements with ids (ACC/SOC/CLN/MM/HOST/RES/AC/PROG/CFG/STO/MOD/LEG/WEB/OPS). Please review, challenge anything that conflicts with `Server/Ranking`, and reference the ids from this file when you add endpoints. Note RES-1: match results become host→API, not client→API.
+
 - 2026-10-25 game → server: keep scope to auth + lobby + match start + match result until the match is proven. No clans / store yet.
