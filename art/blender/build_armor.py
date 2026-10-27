@@ -4,8 +4,8 @@ one FBX per item into Resources/SwarmModels and saves armor_sets.blend next to t
   Armor_Leather/Iron/Gilded.fbx          armor sets, one mesh per piece
   Shield_Bronze_Round, Shield_Iron_Round, Shield_Gilded_Tall    rigid on the left forearm
   Weapon_Pitchfork, Weapon_Sword_Bronze/Steel/Gilded            rigid on Weapon.R
-  Commoner_Head.fbx                      Commoner_Head (skull, nose, ears, face, neck) and Commoner_Hair
-  Commoner_Body.fbx                      tunic, team tabard, belt, trousers, boots, bare arms and hands
+  (Commoner_Head.fbx, Commoner_Body.fbx come from commoner_sculpt.py, run after this; the procedural
+  commoner built here only stands in for it in armor_sets.blend and the previews until then)
   Warrior_Body_Armored.fbx               the Warrior body without its head and tunic skirt, worn under armor
 
 Run headless:
@@ -813,13 +813,13 @@ def blink_key(ob):
 # --- commoner head
 # After current/00_commoner_base.png: the Warrior's skull with a squarer jaw, nose and
 # ears, scaled by HEAD_M toward the art's roughly five-head proportions. HEAD_M also
-# shrinks every other part rigged to Head (face features, hair, helmets) the same way.
+# shrinks every other part rigged to Head (face features, hair, helmets) the same way;
+# it is set so the helmets fit commoner_sculpt.py's sculpted head, which replaces this one.
 
-HEAD_S = 0.64                          # head size against the Warrior's
+HEAD_S = 0.563                         # head size against the Warrior's
 HEAD_PIVOT = Vector((0, 0.0, 2.12))    # chin height at the Head bone's root
-HEAD_LIFT = 0.03                       # up onto the raised shoulders
-HEAD_M = (Matrix.Translation(HEAD_PIVOT + Vector((0, 0, HEAD_LIFT))) @ Matrix.Scale(HEAD_S, 4)
-          @ Matrix.Translation(-HEAD_PIVOT))
+HEAD_SHIFT = Vector((0, -0.03, 0.036))     # forward onto the sculpted head, up onto the raised shoulders
+HEAD_M = (Matrix.Translation(HEAD_PIVOT + HEAD_SHIFT) @ Matrix.Scale(HEAD_S, 4) @ Matrix.Translation(-HEAD_PIVOT))
 
 
 def smoothstep(e0, e1, x):
@@ -2069,10 +2069,9 @@ def main():
     scene_col = bpy.context.scene.collection
     head = commoner_head(arm).build(arm, scene_col)
     blink_key(head)
-    export(arm, [head, hair().build(arm, scene_col)], 'Commoner_Head.fbx')
+    hair().build(arm, scene_col)
     body_ob = commoner_body().build(arm, scene_col)
     swing_arm(body_ob, 'L', 12)
-    export(arm, [body_ob], 'Commoner_Body.fbx')
     body = armored_body(arm)
     export(arm, [body], 'Warrior_Body_Armored.fbx')
     tri = 0

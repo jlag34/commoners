@@ -581,7 +581,7 @@ def dress(outfit):
     if tier == 0:
         shown.add('Commoner_Body')
     else:
-        shown |= {'Warrior_Body_Armored', SHIELDS[tier]}
+        shown |= {'Warrior_Body_Armored', 'Commoner_Collar', SHIELDS[tier]}
         shown |= {o.name for o in bpy.data.collections[ARMOR[tier]].objects}
     meshes = []
     for o in bpy.data.objects:

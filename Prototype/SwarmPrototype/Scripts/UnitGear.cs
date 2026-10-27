@@ -15,19 +15,21 @@ namespace SwarmPrototype
     // armature (art/blender/build_armor.py -> Resources/SwarmModels/*.fbx). Each piece is
     // re-bound to this model's bones by name, so it follows the animations. If a set is
     // missing the old primitive armor or tinted sword is used instead. The Warrior's head
-    // and hair are always swapped for the commoner's (art/current/00_commoner_base.png):
-    // a smaller square-jawed head with a face and spiky hair, the hair hidden under
-    // helmets. Unarmored, the body is the commoner's tunic, team-coloured tabard, belt,
-    // trousers and boots; under armor it is the Warrior body without head or tunic skirt.
+    // and hair are always swapped for the commoner's, sculpted after
+    // art/current/00_commoner_base.png (art/blender/commoner_sculpt.py), the hair hidden
+    // under helmets. Unarmored, the body is the commoner's tunic, team-coloured tabard,
+    // belt, trousers and boots; under armor it is the Warrior body without head or tunic skirt.
     public class UnitGear : MonoBehaviour
     {
         static readonly int[] TierStarts = { 1, 6, 11 };
         static readonly string[] ArmorSets = { null, "Armor_Leather", "Armor_Iron", "Armor_Gilded" };
         static readonly string[] ShieldSets = { null, "Shield_Bronze_Round", "Shield_Iron_Round", "Shield_Gilded_Tall" };
         static readonly string[] WeaponSets = { "Weapon_Pitchfork", "Weapon_Sword_Bronze", "Weapon_Sword_Steel", "Weapon_Sword_Gilded" };
-        // Commoner_Head (skull, ears, face, neck) and Commoner_Hair, worn at every tier.
+        // Commoner_Head (face, ears, neck) and Commoner_Hair, worn at every tier, and
+        // Commoner_Collar, padding that fills the armor's neck opening while armor is worn.
         const string CommonerHead = "Commoner_Head";
         const string CommonerHair = "Commoner_Hair";
+        const string CommonerCollar = "Commoner_Collar";
         // The unarmored body: clothes, bare arms and hands.
         const string CommonerBody = "Commoner_Body";
         // Warrior_Body without its head or tunic skirt, shown in its place while armor is worn.
@@ -53,7 +55,7 @@ namespace SwarmPrototype
         readonly List<Renderer> shoulderPads = new List<Renderer>();
         Renderer hair, body;
         readonly List<GameObject> baseParts = new List<GameObject>();
-        GameObject commonerHair;
+        GameObject commonerHair, commonerCollar;
         Color team = new Color(0.1f, 0.33f, 0.85f);
         Vector3 weaponBoneScale = Vector3.one;
         Vector3 swordScale = Vector3.one;
@@ -108,6 +110,8 @@ namespace SwarmPrototype
             {
                 if (gear.hair != null) gear.hair.enabled = false;
                 gear.commonerHair = gear.baseParts.Find(p => p.name == CommonerHair);
+                gear.commonerCollar = gear.baseParts.Find(p => p.name == CommonerCollar);
+                if (gear.commonerCollar != null) gear.commonerCollar.SetActive(false);
             }
             if (gear.sword != null)
             {
@@ -203,6 +207,7 @@ namespace SwarmPrototype
             foreach (var pad in shoulderPads) pad.enabled = false;
             if (body != null) body.enabled = true;
             if (commonerHair != null) commonerHair.SetActive(!Helmeted[tier]);
+            if (commonerCollar != null) commonerCollar.SetActive(tier > 0);
             if (tier == 0)
             {
                 // The commoner's clothes; the Warrior body and its pads only if they're missing.
@@ -276,6 +281,18 @@ namespace SwarmPrototype
 
         static Material Style(string name, int tier, Color team)
         {
+            if (name == "Commoner_Tex")
+            {
+                // The sculpted commoner's colour atlas; its alpha marks the tabard, which
+                // the TeamTint shader multiplies by the team colour.
+                var shader = Shader.Find("Swarm/TeamTint");
+                var atlas = shader != null ? new Material(shader) : Visuals.Plain(Color.white);
+                atlas.name = name;
+                atlas.mainTexture = Resources.Load<Texture2D>(ModelFolder + "Textures/Commoner");
+                atlas.SetColor("_TeamColor", team);
+                atlas.SetFloat("_Glossiness", 0.2f);
+                return atlas;
+            }
             if (name == "Face_Features")
             {
                 // Colour swatches in a small atlas; the mesh's UVs pick one per feature.
