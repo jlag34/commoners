@@ -686,10 +686,10 @@ def render_previews(sets):
     bg = world.node_tree.nodes.get('Background')
     if bg:
         bg.inputs['Color'].default_value = (0.66, 0.70, 0.76, 1)
-        bg.inputs['Strength'].default_value = 0.3
-    for name, kind, loc, rot, energy in (('key', 'SUN', (4, -6, 9), (D(40), 0, D(-30)), 0.8),
-                                         ('fill', 'SUN', (-6, -4, 5), (D(60), 0, D(50)), 0.25),
-                                         ('rim', 'SUN', (0, 7, 6), (D(-50), 0, 0), 0.35)):
+        bg.inputs['Strength'].default_value = 0.2
+    for name, kind, loc, rot, energy in (('key', 'SUN', (4, -6, 9), (D(40), 0, D(-30)), 0.5),
+                                         ('fill', 'SUN', (-6, -4, 5), (D(60), 0, D(50)), 0.15),
+                                         ('rim', 'SUN', (0, 7, 6), (D(-50), 0, 0), 0.25)):
         light = bpy.data.lights.new(name, kind)
         light.energy = energy
         light.angle = D(12)
