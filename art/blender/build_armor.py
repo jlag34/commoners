@@ -30,13 +30,13 @@ LEFT = Vector((1, 0, 0))   # wearer's left
 
 # Material name -> viewport/base color. Unity restyles these by name in UnitGear.
 MATERIALS = [
-    ("Leather_Brown", (0.45, 0.26, 0.13, 1)),
-    ("Leather_Dark", (0.24, 0.13, 0.07, 1)),
-    ("Metal_Iron", (0.68, 0.70, 0.74, 1)),
-    ("Metal_Gold", (0.95, 0.70, 0.18, 1)),
-    ("Metal_Dark", (0.33, 0.34, 0.38, 1)),
-    ("Team_Blue", (0.10, 0.33, 0.85, 1)),
-    ("Wood_Brown", (0.52, 0.33, 0.16, 1)),
+    ("Leather_Brown", (0.64, 0.36, 0.17, 1)),
+    ("Leather_Dark", (0.38, 0.20, 0.10, 1)),
+    ("Metal_Iron", (0.80, 0.82, 0.86, 1)),
+    ("Metal_Gold", (1.00, 0.72, 0.16, 1)),
+    ("Metal_Dark", (0.46, 0.48, 0.53, 1)),
+    ("Team_Blue", (0.13, 0.36, 0.86, 1)),
+    ("Wood_Brown", (0.64, 0.41, 0.20, 1)),
 ]
 MAT = {name: i for i, (name, _) in enumerate(MATERIALS)}
 
@@ -118,6 +118,10 @@ def lathe(bm, profile, M, seg, mat, arc=None, closed=False, caps=False, cap_firs
         faces.append(bm.faces.new(rings[-1]))
     for f in faces:
         f.material_index = mat
+    if caps and not full:
+        fan = [f for f in faces if len(f.verts) > 4]
+        if fan:
+            bmesh.ops.triangulate(bm, faces=fan)
     return faces
 
 
@@ -204,9 +208,9 @@ class Piece:
             if bevel > 0:
                 sharp = [e for e in bm.edges if e.is_manifold and e.calc_length() > 0.03 and e.calc_face_angle(0) > D(50)]
                 if sharp:
-                    bmesh.ops.bevel(bm, geom=sharp, offset=bevel, segments=1, affect='EDGES', clamp_overlap=True, loop_slide=True)
+                    bmesh.ops.bevel(bm, geom=sharp, offset=bevel, segments=2, affect='EDGES', clamp_overlap=True, loop_slide=True)
             bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
-            sharp = [e for e in bm.edges if e.is_manifold and e.calc_face_angle(0) > D(58)]
+            sharp = [e for e in bm.edges if e.is_manifold and e.calc_face_angle(0) > D(62)]
             if sharp:
                 bmesh.ops.split_edges(bm, edges=sharp)
             for f in bm.faces:
@@ -314,7 +318,7 @@ def waist(s):
     bm = pc.part('Hips')
     M = frame((0, 0.03, 0))
     leather = s.tier == 'leather'
-    lathe(bm, shell([P(1.30, 0.345, 0.315), P(1.42, 0.345, 0.315)], 0.03), M, 12, s.shell_mat, closed=True, offset=15)
+    lathe(bm, shell([P(1.30, 0.345, 0.315), P(1.42, 0.345, 0.315)], 0.03), M, 16, s.shell_mat, closed=True, offset=11.25)
     if leather:
         box(bm, frame((0, -0.335, 1.36), FRONT, LEFT), (0.1, 0.08, 0.03), MAT['Metal_Dark'])
     else:
@@ -361,16 +365,18 @@ def shoulder(s):
     M = bone_frame('UpperArm.L')      # z along the arm, x front, y down
     leather = s.tier == 'leather'
     seg = 10 if leather else 6
-    prof = [P(-0.05, 0.25), P(0.04, 0.265), P(0.14, 0.24), P(0.24, 0.18)]
+    seg = 12 if leather else 8
+    prof = [P(-0.07, 0.20), P(-0.01, 0.255), P(0.07, 0.275), P(0.15, 0.255), P(0.24, 0.185)]
     lathe(bm, shell(prof, 0.035), M, seg, s.shell_mat, arc=(-200, 20), closed=True, caps=True)
     # Team inset on top, a hair proud of the shell.
-    lathe(bm, shell([P(0.0, 0.272), P(0.065, 0.278), P(0.13, 0.25)], 0.012), M, 3, MAT['Team_Blue'], arc=(-128, -52), closed=True, caps=True)
+    lathe(bm, shell([P(-0.01, 0.262), P(0.07, 0.285), P(0.15, 0.263)], 0.012), M, 4, MAT['Team_Blue'], arc=(-138, -42), closed=True, caps=True)
     if leather:
-        band(bm, M, 0.14, 0.175, 0.25, 0.25, 0.015, seg, MAT['Leather_Dark'], arc=(-200, 20))
+        band(bm, M, 0.15, 0.185, 0.255, 0.255, 0.015, seg, MAT['Leather_Dark'], arc=(-200, 20))
     else:
-        band(bm, M, -0.06, -0.02, 0.262, 0.262, 0.02, seg, s.metal, arc=(-200, 20))
-    for ang in (-20, -160):
-        rivet(bm, frame(ring_point(M, 0.245, 0.245, 0.10, ang), ring_normal(M, ang)), mat=s.rivet)
+        band(bm, M, 0.16, 0.20, 0.253, 0.253, 0.02, seg, s.metal, arc=(-200, 20))
+    if leather:
+        for ang in (-20, -160):
+            rivet(bm, frame(ring_point(M, 0.245, 0.245, 0.10, ang), ring_normal(M, ang)), mat=s.rivet)
     return pc
 
 
@@ -379,7 +385,7 @@ def upper_arm(s):
     bm = pc.part('UpperArm.L')
     M = bone_frame('UpperArm.L')
     prof = [P(0.19, 0.182), P(0.215, 0.182), P(0.215, 0.17), P(0.31, 0.17), P(0.31, 0.182), P(0.335, 0.182)]
-    lathe(bm, shell(prof, 0.03), M, 10, s.metal, closed=True)
+    lathe(bm, shell(prof, 0.03), M, 12, s.metal, closed=True)
     return pc
 
 
@@ -388,7 +394,7 @@ def elbow(s):
     bm = pc.part('LowerArm.L')
     head, _ = BONES['LowerArm.L']
     M = frame(head + Vector((0, 0.09, 0)), BACK, UP)
-    seg = 8 if s.tier == 'leather' else 6
+    seg = 8
     lathe(bm, [P(0, 0.135, 0.115), P(0.05, 0.125, 0.105), P(0.09, 0.075, 0.065), P(0.115, 0)], M, seg, s.metal, cap_first=True, offset=30)
     band(bm, bone_frame('LowerArm.L'), -0.03, 0.03, 0.165, 0.165, 0.02, 10, MAT['Leather_Brown'])
     return pc
@@ -400,13 +406,13 @@ def forearm(s):
     bm = pc.part('LowerArm.L')
     M = bone_frame('LowerArm.L')
     if leather:
-        lathe(bm, shell([P(0.07, 0.158), P(0.22, 0.152), P(0.40, 0.15)], 0.03), M, 10, s.shell_mat, closed=True)
+        lathe(bm, shell([P(0.07, 0.158), P(0.22, 0.152), P(0.40, 0.15)], 0.03), M, 12, s.shell_mat, closed=True)
         for t in (0.12, 0.31):
             band(bm, M, t, t + 0.045, 0.17, 0.17, 0.018, 10, MAT['Leather_Dark'])
             rivet(bm, frame(ring_point(M, 0.17, 0.17, t + 0.022, -90), ring_normal(M, -90)), r=0.02, mat=s.rivet)
     else:
         prof = [P(0.06, 0.175), P(0.09, 0.175), P(0.09, 0.163), P(0.37, 0.148), P(0.37, 0.16), P(0.40, 0.16)]
-        lathe(bm, shell(prof, 0.03), M, 10, s.metal, closed=True)
+        lathe(bm, shell(prof, 0.03), M, 12, s.metal, closed=True)
         for t in (0.13, 0.32):
             rivet(bm, frame(ring_point(M, 0.16, 0.16, t, -90), ring_normal(M, -90)), r=0.02, mat=s.rivet)
     return pc
@@ -418,7 +424,7 @@ def glove(s):
     cuff = pc.part('Fist.L')
     M = bone_frame('Fist.L')
     prof = [P(-0.03, 0.18), P(0.02, 0.17), P(0.10, 0.165)]
-    lathe(cuff, shell(prof, 0.03), M, 10, s.shell_mat, closed=True)
+    lathe(cuff, shell(prof, 0.03), M, 12, s.shell_mat, closed=True)
     hand = pc.part('Fist.L', bevel=0.02)
     box(hand, frame((1.305, 0.035, 1.82), UP, FRONT), (0.31, 0.22, 0.20), s.shell_mat if leather else MAT['Leather_Brown'])
     if not leather:
@@ -517,11 +523,9 @@ def knee(s):
     bm = pc.part('LowerLeg.L')
     head, _ = BONES['LowerLeg.L']
     M = frame(head + Vector((0.01, -0.125, 0.01)), FRONT, UP)
-    seg = 8 if s.tier == 'leather' else 6
-    lathe(bm, [P(0, 0.145, 0.155), P(0.05, 0.13, 0.14), P(0.09, 0.08, 0.085), P(0.115, 0)], M, seg, s.shell_mat, cap_first=True, offset=30)
-    band(bm, bone_frame('LowerLeg.L'), -0.025, 0.025, 0.165, 0.165, 0.02, 10, s.trim)
-    for ang in (90, 270):
-        rivet(bm, frame(ring_point(M, 0.14, 0.15, 0.03, ang), ring_normal(M, ang)), r=0.02, mat=s.rivet)
+    seg = 10 if s.tier == 'leather' else 8
+    lathe(bm, [P(0, 0.145, 0.155), P(0.05, 0.135, 0.145), P(0.09, 0.085, 0.09), P(0.115, 0)], M, seg, s.shell_mat, cap_first=True, offset=30)
+    band(bm, bone_frame('LowerLeg.L'), -0.025, 0.025, 0.165, 0.165, 0.02, 12, s.trim)
     return pc
 
 
@@ -530,7 +534,7 @@ def shin(s):
     pc = Piece(s.name('Shin_L' if leather else 'Greave_L'))
     bm = pc.part('LowerLeg.L')
     M = bone_frame('LowerLeg.L')      # z runs down the shin, x front
-    seg = 8 if leather else 6
+    seg = 10 if leather else 8
     prof = [P(0.08, 0.165, 0.165, cx=0.01), P(0.20, 0.16, 0.16, cx=0.01), P(0.33, 0.165, 0.165, cx=0.01), P(0.37, 0.19, 0.19, cx=0.01)]
     lathe(bm, shell(prof, 0.03), M, seg, s.shell_mat, arc=(-105, 105), closed=True, caps=True)
     if leather:
@@ -538,9 +542,8 @@ def shin(s):
             band(bm, M, t, t + 0.045, 0.175, 0.175, 0.018, 10, MAT['Leather_Dark'])
     else:
         box(bm, frame(M @ Vector((0.17, 0, 0.21)), M.to_3x3() @ Vector((1, 0, 0)), M.to_3x3() @ Vector((0, 0, 1))), (0.24, 0.035, 0.035), s.metal)
-        for t in (0.12, 0.30):
-            for ang in (80, -80):
-                rivet(bm, frame(ring_point(M, 0.165, 0.165, t, ang) + M.to_3x3() @ Vector((0.01, 0, 0)), ring_normal(M, ang)), r=0.02, mat=s.rivet)
+        for ang in (80, -80):
+            rivet(bm, frame(ring_point(M, 0.165, 0.165, 0.21, ang) + M.to_3x3() @ Vector((0.01, 0, 0)), ring_normal(M, ang)), r=0.02, mat=s.rivet)
     return pc
 
 
@@ -549,23 +552,23 @@ def boot(s):
     pc = Piece(s.name('Boot_L'))
     shaft = pc.part('LowerLeg.L')
     M = frame((0.215, -0.015, 0))
-    cuff_mat = MAT['Leather_Brown']
-    lathe(shaft, shell([P(0.31, 0.19, 0.185), P(0.27, 0.172, 0.167), P(0.10, 0.172, 0.167)], 0.03), M, 10, cuff_mat, closed=True)
+    lathe(shaft, shell([P(0.33, 0.19, 0.185), P(0.30, 0.178, 0.173), P(0.10, 0.172, 0.167)], 0.03), M, 12, MAT['Leather_Brown'], closed=True)
     if not leather:
-        band(shaft, M, 0.17, 0.25, 0.185, 0.18, 0.025, 10, s.metal)
-    else:
-        band(shaft, M, 0.20, 0.245, 0.185, 0.18, 0.018, 10, MAT['Leather_Dark'])
-    foot = pc.part('Foot.L')
+        band(shaft, M, 0.17, 0.235, 0.186, 0.181, 0.025, 12, s.metal)
+    foot = pc.part('Foot.L', bevel=0.03)
     F = frame((0.235, 0.0, 0.0), UP, FRONT)     # local x toward the toes
-    outline = [(-0.14, -0.09), (-0.10, -0.115), (0.18, -0.115), (0.30, -0.09), (0.34, -0.03), (0.34, 0.03), (0.30, 0.09), (0.18, 0.115), (-0.10, 0.115), (-0.14, 0.09)]
+    outline = [(-0.15, -0.07), (-0.13, -0.105), (-0.06, -0.12), (0.16, -0.12), (0.27, -0.105), (0.335, -0.06), (0.35, 0.0),
+               (0.335, 0.06), (0.27, 0.105), (0.16, 0.12), (-0.06, 0.12), (-0.13, 0.105), (-0.15, 0.07)]
     plate(foot, outline, 0.15, F, MAT['Leather_Brown'], z0=0.01)
-    plate(foot, scale_pts(outline, 1.06), 0.035, F, MAT['Leather_Dark'], z0=-0.004)
+    sole = pc.part('Foot.L', bevel=0.0)
+    plate(sole, scale_pts(outline, 1.04), 0.03, F, MAT['Leather_Dark'], z0=-0.004)
     if not leather:
-        toe = [(0.06, -0.125), (0.19, -0.125), (0.31, -0.095), (0.355, -0.03), (0.355, 0.03), (0.31, 0.095), (0.19, 0.125), (0.06, 0.125)]
-        plate(foot, toe, 0.03, F, s.metal, z0=0.16)
-        plate(foot, [(0.06, -0.125), (0.06, 0.125), (0.12, 0.125), (0.12, -0.125)], 0.12, F, s.metal, z0=0.05)
+        toe = [(0.04, -0.125), (0.16, -0.125), (0.28, -0.105), (0.345, -0.06), (0.36, 0.0), (0.345, 0.06), (0.28, 0.105), (0.16, 0.125), (0.04, 0.125)]
+        cap = pc.part('Foot.L', bevel=0.02)
+        plate(cap, toe, 0.03, F, s.metal, z0=0.155)
+        plate(cap, [(0.03, -0.128), (0.03, 0.128), (0.10, 0.128), (0.10, -0.128)], 0.11, F, s.metal, z0=0.06)
     else:
-        box(foot, F @ Matrix.Translation((0.1, 0, 0.13)), (0.06, 0.25, 0.03), MAT['Leather_Dark'])
+        box(foot, F @ Matrix.Translation((0.09, 0, 0.14)), (0.06, 0.252, 0.03), MAT['Leather_Dark'])
     return pc
 
 
@@ -620,13 +623,21 @@ def setup():
         bsdf = m.node_tree.nodes.get('Principled BSDF')
         if bsdf:
             bsdf.inputs['Base Color'].default_value = rgba
-            bsdf.inputs['Metallic'].default_value = 0.9 if name.startswith('Metal') else 0.0
-            bsdf.inputs['Roughness'].default_value = 0.35 if name.startswith('Metal') else 0.7
+            bsdf.inputs['Metallic'].default_value = 0.15 if name.startswith('Metal') else 0.0
+            bsdf.inputs['Roughness'].default_value = 0.4 if name.startswith('Metal') else 0.65
         m.diffuse_color = rgba
-        m.metallic = 0.9 if name.startswith('Metal') else 0.0
-        m.roughness = 0.35 if name.startswith('Metal') else 0.7
+        m.metallic = 0.15 if name.startswith('Metal') else 0.0
+        m.roughness = 0.4 if name.startswith('Metal') else 0.65
     for m in bpy.data.materials:
         if m.name.startswith('Warrior'):
+            m.use_nodes = True
+            bsdf = m.node_tree.nodes.get('Principled BSDF')
+            tex_path = os.path.join(MODELS, 'Textures', m.name + '.png')
+            if bsdf and os.path.exists(tex_path):
+                tex = m.node_tree.nodes.new('ShaderNodeTexImage')
+                tex.image = bpy.data.images.load(tex_path)
+                m.node_tree.links.new(tex.outputs['Color'], bsdf.inputs['Base Color'])
+                bsdf.inputs['Roughness'].default_value = 0.7
             m.diffuse_color = (0.78, 0.62, 0.48, 1)
     return arm
 
@@ -661,17 +672,31 @@ def export(arm, objects, filename):
 
 def render_previews(sets):
     scene = bpy.context.scene
-    scene.render.engine = 'BLENDER_WORKBENCH'
+    try:
+        scene.render.engine = 'BLENDER_EEVEE'
+    except TypeError:
+        scene.render.engine = 'BLENDER_EEVEE_NEXT'
     scene.render.resolution_x = 700
     scene.render.resolution_y = 900
-    scene.display.shading.light = 'STUDIO'
-    scene.display.shading.color_type = 'MATERIAL'
-    scene.display.shading.show_shadows = True
-    scene.display.shading.show_cavity = True
+    scene.view_settings.view_transform = 'Standard'
     scene.render.film_transparent = False
     world = bpy.data.worlds.new('W')
     scene.world = world
-    world.color = (0.62, 0.66, 0.72)
+    world.use_nodes = True
+    bg = world.node_tree.nodes.get('Background')
+    if bg:
+        bg.inputs['Color'].default_value = (0.66, 0.70, 0.76, 1)
+        bg.inputs['Strength'].default_value = 0.3
+    for name, kind, loc, rot, energy in (('key', 'SUN', (4, -6, 9), (D(40), 0, D(-30)), 0.8),
+                                         ('fill', 'SUN', (-6, -4, 5), (D(60), 0, D(50)), 0.25),
+                                         ('rim', 'SUN', (0, 7, 6), (D(-50), 0, 0), 0.35)):
+        light = bpy.data.lights.new(name, kind)
+        light.energy = energy
+        light.angle = D(12)
+        lo = bpy.data.objects.new(name, light)
+        scene.collection.objects.link(lo)
+        lo.location = loc
+        lo.rotation_euler = rot
     cam = bpy.data.cameras.new('cam')
     co = bpy.data.objects.new('cam', cam)
     scene.collection.objects.link(co)

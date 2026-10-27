@@ -247,13 +247,13 @@ namespace SwarmPrototype
             Color glow = Color.black;
             switch (name)
             {
-                case "Leather_Brown": color = new Color(0.46f, 0.27f, 0.14f); break;
-                case "Leather_Dark": color = new Color(0.25f, 0.14f, 0.07f); break;
-                case "Wood_Brown": color = new Color(0.52f, 0.34f, 0.17f); break;
-                case "Metal_Iron": color = new Color(0.66f, 0.68f, 0.72f); metallic = 0.7f; gloss = 0.6f; break;
-                case "Metal_Dark": color = new Color(0.36f, 0.37f, 0.4f); metallic = 0.6f; gloss = 0.5f; break;
-                case "Metal_Gold": color = new Color(1f, 0.8f, 0.28f); metallic = 0.8f; gloss = 0.7f; glow = color * ArmorGlow[Mathf.Clamp(tier, 0, 3)]; break;
-                case "Team_Blue": color = team; gloss = 0.2f; break;
+                case "Leather_Brown": color = new Color(0.64f, 0.36f, 0.17f); gloss = 0.3f; break;
+                case "Leather_Dark": color = new Color(0.38f, 0.2f, 0.1f); gloss = 0.25f; break;
+                case "Wood_Brown": color = new Color(0.64f, 0.41f, 0.2f); gloss = 0.25f; break;
+                case "Metal_Iron": color = new Color(0.8f, 0.82f, 0.86f); metallic = 0.3f; gloss = 0.55f; break;
+                case "Metal_Dark": color = new Color(0.46f, 0.48f, 0.53f); metallic = 0.3f; gloss = 0.45f; break;
+                case "Metal_Gold": color = new Color(1f, 0.74f, 0.18f); metallic = 0.35f; gloss = 0.6f; glow = color * ArmorGlow[Mathf.Clamp(tier, 0, 3)]; break;
+                case "Team_Blue": color = team; gloss = 0.3f; break;
                 default: return null;
             }
             var m = Visuals.Plain(color);
