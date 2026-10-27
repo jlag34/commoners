@@ -526,6 +526,7 @@ def setup_render():
     world.node_tree.nodes['Background'].inputs['Color'].default_value = linear((0.1, 0.19, 0.2))
     world.node_tree.nodes['Background'].inputs['Strength'].default_value = 1.0
     for m in bpy.data.materials:
+        m.use_backface_culling = True     # as Unity draws them, so inside-out faces show up here too
         bsdf = m.node_tree.nodes.get('Principled BSDF') if m.use_nodes and m.node_tree else None
         if bsdf and not bsdf.inputs['Base Color'].is_linked:
             bsdf.inputs['Base Color'].default_value = linear(bsdf.inputs['Base Color'].default_value)

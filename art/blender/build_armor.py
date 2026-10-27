@@ -435,7 +435,7 @@ def chest(s):
     if leather:
         # Shoulder straps over the top, a dark belt at the hem, rivets at the strap ends.
         for sx in (-0.19, 0.19):
-            box(bm, frame((sx, 0.02, 2.035), UP, FRONT), (0.56, 0.1, 0.04), MAT['Leather_Dark'])
+            box(bm, frame((sx, 0.02, 2.048), UP, FRONT), (0.56, 0.1, 0.04), MAT['Leather_Dark'])
             for fy in (-0.355, 0.395):
                 rivet(bm, frame((sx, fy, 1.94), FRONT if fy < 0 else BACK), mat=s.rivet)
         band(bm, M, 1.44, 1.50, 0.375 - slim + 0.008, 0.345 - slim + 0.008, 0.02, 12, MAT['Leather_Dark'], offset=15)
@@ -450,7 +450,7 @@ def chest(s):
         else:
             box(bm, frame((0, -0.335, 1.78), FRONT, UP), (0.42, 0.035, 0.035), s.metal)
         for sx in (-0.2, 0.2):
-            box(bm, frame((sx, 0.02, 2.045), UP, FRONT), (0.46, 0.09, 0.03), MAT['Leather_Brown'])
+            box(bm, frame((sx, 0.02, 2.058), UP, FRONT), (0.46, 0.09, 0.03), MAT['Leather_Brown'])
     return pc
 
 
@@ -469,14 +469,15 @@ def waist(s):
     # Padded underskirt: Warrior_Body_Armored has no skirt, so this is what shows
     # between the tassets.
     pad = MAT['Leather_Dark'] if leather else MAT['Leather_Brown']
-    lathe(bm, shell([P(1.34, 0.37, 0.32), P(1.20, 0.41, 0.355), P(1.03, 0.44, 0.39)], 0.025), M, 16, pad, closed=True, offset=11.25)
+    # Kept a centimetre inside the tassets' inner face so the two never cross.
+    lathe(bm, shell([P(1.34, 0.37, 0.32), P(1.20, 0.39, 0.335), P(1.03, 0.415, 0.365)], 0.025), M, 16, pad, closed=True, offset=11.25)
     # Tassets hang from the belt as curved cone segments over it.
     top = P(1.33, 0.39, 0.34)
     if leather:
         front = [top, P(1.02, 0.47, 0.43)]
         lathe(bm, shell(front, 0.025), M, 3, s.shell_mat, arc=(-24, 24), closed=True, caps=True)
     else:
-        front = [P(1.33, 0.39, 0.34, -27, 27), P(1.10, 0.455, 0.41, -25, 25), P(0.93, 0.52, 0.48, -4, 4)]
+        front = [P(1.33, 0.39, 0.34, -27, 27), P(1.10, 0.455, 0.41, -25, 25), P(0.95, 0.51, 0.47, -14, 14)]
         lathe(bm, shell(front, 0.025), M, 4, s.shell_mat, arc=(-27, 27), closed=True, caps=True)
     for a0, a1 in ((44, 84), (-84, -44), (156, 204)):
         lathe(bm, shell([top, P(1.06, 0.47, 0.43)], 0.025), M, 3, s.shell_mat, arc=(a0, a1), closed=True, caps=True)
@@ -515,7 +516,7 @@ def shoulder(s):
     prof = [P(-0.07, 0.20), P(-0.01, 0.255), P(0.07, 0.275), P(0.15, 0.255), P(0.24, 0.185)]
     lathe(bm, shell(prof, 0.035), M, seg, s.shell_mat, arc=(-200, 20), closed=True, caps=True)
     # Team inset on top, a hair proud of the shell.
-    lathe(bm, shell([P(-0.01, 0.262), P(0.07, 0.285), P(0.15, 0.263)], 0.012), M, 4, MAT['Team_Blue'], arc=(-138, -42), closed=True, caps=True)
+    lathe(bm, shell([P(-0.01, 0.272), P(0.07, 0.294), P(0.15, 0.272)], 0.02), M, 4, MAT['Team_Blue'], arc=(-138, -42), closed=True, caps=True)
     if leather:
         band(bm, M, 0.15, 0.185, 0.255, 0.255, 0.015, seg, MAT['Leather_Dark'], arc=(-200, 20))
     else:
@@ -554,8 +555,8 @@ def forearm(s):
     if leather:
         lathe(bm, shell([P(0.07, 0.158), P(0.22, 0.152), P(0.40, 0.15)], 0.03), M, 12, s.shell_mat, closed=True)
         for t in (0.12, 0.31):
-            band(bm, M, t, t + 0.045, 0.17, 0.17, 0.018, 10, MAT['Leather_Dark'])
-            rivet(bm, frame(ring_point(M, 0.17, 0.17, t + 0.022, -90), ring_normal(M, -90)), r=0.02, mat=s.rivet)
+            band(bm, M, t, t + 0.045, 0.175, 0.175, 0.02, 12, MAT['Leather_Dark'])
+            rivet(bm, frame(ring_point(M, 0.175, 0.175, t + 0.022, -90), ring_normal(M, -90)), r=0.02, mat=s.rivet)
     else:
         prof = [P(0.06, 0.175), P(0.09, 0.175), P(0.09, 0.163), P(0.37, 0.148), P(0.37, 0.16), P(0.40, 0.16)]
         lathe(bm, shell(prof, 0.03), M, 12, s.metal, closed=True)
@@ -1508,7 +1509,9 @@ def thigh(s):
     lathe(bm, shell(prof, 0.025), M, 14 if leather else 12, s.shell_mat, closed=True)
     if leather:
         for t in (0.12, 0.36):
-            band(bm, M, t, t + 0.045, 0.245, 0.22, 0.02, 14, MAT['Leather_Dark'])
+            # Centred on the plate (which sits off the bone toward the outside), not the bone.
+            cy = -0.025 if t < 0.2 else -0.02
+            lathe(bm, shell([P(t, 0.252, 0.227, cy=cy), P(t + 0.045, 0.252, 0.227, cy=cy)], 0.022), M, 14, MAT['Leather_Dark'], closed=True)
             rivet(bm, frame(ring_point(M, 0.245, 0.22, t + 0.022, 0), ring_normal(M, 0)), r=0.02, mat=s.rivet)
     else:
         band(bm, M, 0.02, 0.07, 0.24, 0.215, 0.025, 12, s.metal)
@@ -1526,7 +1529,7 @@ def knee(s):
     seg = 10 if s.tier == 'leather' else 8
     lathe(bm, [P(0, 0.145, 0.155), P(0.05, 0.135, 0.145), P(0.09, 0.085, 0.09), P(0.115, 0)], M, seg, s.shell_mat, cap_first=True, offset=30)
     # Padding around the joint fills the gap between thigh plate and shin at the back.
-    band(bm, bone_frame('LowerLeg.L'), -0.10, 0.06, 0.168, 0.168, 0.025, 12, s.trim)
+    band(bm, bone_frame('LowerLeg.L'), -0.03, 0.07, 0.152, 0.152, 0.025, 12, s.trim)
     return pc
 
 
@@ -1536,14 +1539,15 @@ def shin(s):
     bm = pc.part('LowerLeg.L')
     M = bone_frame('LowerLeg.L')      # z runs down the shin, x front
     seg = 10 if leather else 8
-    prof = [P(0.08, 0.165, 0.165, cx=0.01), P(0.20, 0.16, 0.16, cx=0.01), P(0.33, 0.165, 0.165, cx=0.01), P(0.37, 0.19, 0.19, cx=0.01)]
+    # Ends tucked inside the boot's cuff: flaring to the cuff's own radius made the two interleave.
+    prof = [P(0.08, 0.165, 0.165, cx=0.01), P(0.20, 0.16, 0.16, cx=0.01), P(0.31, 0.158, 0.158, cx=0.01)]
     lathe(bm, shell(prof, 0.03), M, seg, s.shell_mat, arc=(-105, 105), closed=True, caps=True)
     # Leather backing closes the open back of the shell over the calf.
-    back = [P(0.07, 0.15, 0.15, cx=0.01), P(0.36, 0.15, 0.15, cx=0.01)]
+    back = [P(0.07, 0.15, 0.15, cx=0.01), P(0.31, 0.148, 0.148, cx=0.01)]
     lathe(bm, shell(back, 0.02), M, 6, s.trim, arc=(100, 260), closed=True, caps=True)
     if leather:
-        for t in (0.13, 0.28):
-            band(bm, M, t, t + 0.045, 0.175, 0.175, 0.018, 10, MAT['Leather_Dark'])
+        for t in (0.11, 0.22):
+            lathe(bm, shell([P(t, 0.185, 0.185, cx=0.01), P(t + 0.045, 0.185, 0.185, cx=0.01)], 0.02), M, 10, MAT['Leather_Dark'], closed=True)
     else:
         box(bm, frame(M @ Vector((0.17, 0, 0.21)), M.to_3x3() @ Vector((1, 0, 0)), M.to_3x3() @ Vector((0, 0, 1))), (0.24, 0.035, 0.035), s.metal)
         for ang in (80, -80):
@@ -1556,7 +1560,9 @@ def boot(s):
     pc = Piece(s.name('Boot_L'))
     shaft = pc.part('LowerLeg.L')
     M = frame((0.215, -0.015, 0))
-    lathe(shaft, shell([P(0.33, 0.19, 0.185), P(0.30, 0.178, 0.173), P(0.10, 0.172, 0.167)], 0.03), M, 12, MAT['Leather_Brown'], closed=True)
+    # Tapers into the foot below its top: a straight shaft wider than the foot met its
+    # rounded top edge at a glancing angle and the two broke up into slivers.
+    lathe(shaft, shell([P(0.33, 0.19, 0.185), P(0.30, 0.178, 0.173), P(0.19, 0.172, 0.167), P(0.08, 0.125, 0.11)], 0.03), M, 12, MAT['Leather_Brown'], closed=True)
     if not leather:
         band(shaft, M, 0.17, 0.235, 0.186, 0.181, 0.025, 12, s.metal)
     foot = pc.part('Foot.L', bevel=0.03)
@@ -1567,10 +1573,11 @@ def boot(s):
     sole = pc.part('Foot.L', bevel=0.0)
     plate(sole, scale_pts(outline, 1.04), 0.03, F, MAT['Leather_Dark'], z0=-0.004)
     if not leather:
-        toe = [(0.04, -0.125), (0.16, -0.125), (0.28, -0.105), (0.345, -0.06), (0.36, 0.0), (0.345, 0.06), (0.28, 0.105), (0.16, 0.125), (0.04, 0.125)]
+        # A steel toe box enclosing the front of the leather foot a centimetre clear all
+        # round: thin caps laid on the foot's rounded top splintered through it.
+        toe = [(0.04, -0.132), (0.16, -0.132), (0.28, -0.115), (0.35, -0.068), (0.368, 0.0), (0.35, 0.068), (0.28, 0.115), (0.16, 0.132), (0.04, 0.132)]
         cap = pc.part('Foot.L', bevel=0.02)
-        plate(cap, toe, 0.03, F, s.metal, z0=0.155)
-        plate(cap, [(0.03, -0.128), (0.03, 0.128), (0.10, 0.128), (0.10, -0.128)], 0.11, F, s.metal, z0=0.06)
+        plate(cap, toe, 0.165, F, s.metal, z0=0.025)
     else:
         box(foot, F @ Matrix.Translation((0.09, 0, 0.14)), (0.06, 0.252, 0.03), MAT['Leather_Dark'])
     return pc
@@ -1620,7 +1627,9 @@ def shield_round(name, r, rim, boss):
     bm = pc.part('LowerArm.L')
     M = shield_frame()
     lathe(bm, [P(0, r), P(0.04, r)], M, 16, MAT['Wood_Brown'], cap_first=True, cap_last=True)
-    plate(bm, rect(2 * r * 0.95, 0.15), 0.012, M, MAT['Team_Blue'], z0=0.04)
+    # Thin plates get a part of their own: bevelled with the rest they collapse and come
+    # out inside-out, and Unity culls the face so the stripe flickers against the wood.
+    plate(pc.part('LowerArm.L', bevel=0.0), rect(2 * r * 0.95, 0.15), 0.012, M, MAT['Team_Blue'], z0=0.04)
     lathe(bm, shell([P(0.0, r + 0.03), P(0.075, r + 0.03)], 0.065), M, 16, MAT[rim], closed=True)
     lathe(bm, [P(0.05, 0.13), P(0.10, 0.115), P(0.145, 0.065), P(0.165, 0)], M, 10, MAT[boss], cap_first=True)
     rivet_mat = MAT['Metal_Dark'] if rim == 'Metal_Iron' else MAT[rim]
@@ -1639,7 +1648,7 @@ def shield_tall():
                (-0.55, 0), (-0.50, -0.07), (-0.32, -0.22), (-0.05, -0.32), (0.27, -0.36)]
     plate(bm, scale_pts(outline, 0.92), 0.03, M, MAT['Wood_Brown'], z0=-0.025)
     plate(bm, outline, 0.07, M, MAT['Metal_Gold'])
-    plate(bm, scale_pts(outline, 0.84), 0.015, M, MAT['Team_Blue'], z0=0.07)
+    plate(pc.part('LowerArm.L', bevel=0.0), scale_pts(outline, 0.84), 0.015, M, MAT['Team_Blue'], z0=0.07)
     lathe(bm, [P(0.085, 0.15, 0.10), P(0.16, 0)], M @ Matrix.Translation((0.02, 0, 0)), 4, MAT['Metal_Gold'], cap_first=True)
     for x, y in scale_pts(outline, 0.93):
         rivet(bm, M @ Matrix.Translation((x, y, 0.07)), r=0.02, h=0.02, mat=MAT['Metal_Gold'])
@@ -1854,8 +1863,15 @@ def armored_body(arm):
     # The neck ring and trapezius tops too: their dark collar texture showed above the chest
     # plates once the smaller head stopped covering them; the commoner neck fills the gap.
     collar = [p.z > 1.95 and abs(p.x) < 0.36 for p in co]
-    kill = [f for f in bm.faces if any(skirt[v.index] for v in f.verts) or all(inside[v.index] for v in f.verts)
-            or all(head[v.index] or collar[v.index] for v in f.verts)]
+    # The hands too: every armored tier wears gloves or gauntlets over them, and the
+    # bare hand's surface lay right on the glove's and flickered through it.
+    hand_groups = {src.vertex_groups[b + s].index for b in ('Fist', 'Fist1', 'Fist2', 'Thumb1', 'Thumb2') for s in ('.L', '.R')
+                   if src.vertex_groups.get(b + s)}
+    hand = [sum(g.weight for g in v.groups if g.group in hand_groups) for v in me.vertices]
+    # And the pelvis under the belt and padded underskirt, which every armored tier wears.
+    belted = [1.02 < p.z < 1.36 for p in co]
+    kill = [f for f in bm.faces if any(skirt[v.index] for v in f.verts) or all(inside[v.index] or belted[v.index] for v in f.verts)
+            or all(head[v.index] or collar[v.index] for v in f.verts) or sum(hand[v.index] for v in f.verts) > 0.5 * len(f.verts)]
     print("ARMORED BODY drops", len(kill), "of", len(bm.faces), "faces")
     bmesh.ops.delete(bm, geom=kill, context='FACES')
     bmesh.update_edit_mesh(me)
