@@ -4,9 +4,9 @@ one FBX per item into Resources/SwarmModels and saves armor_sets.blend next to t
   Armor_Leather/Iron/Gilded.fbx          armor sets, one mesh per piece
   Shield_Bronze_Round, Shield_Iron_Round, Shield_Gilded_Tall    rigid on the left forearm
   Weapon_Pitchfork, Weapon_Sword_Bronze/Steel/Gilded            rigid on Weapon.R
-  Warrior_Head_Bare.fbx                  the Face mesh without its hair (nose) plus ears
-  Warrior_Face_Features.fbx              eyes, brows and mouth laid on the skull
-  Warrior_Body_Armored.fbx               the body without its tunic skirt, worn under armor
+  Commoner_Head.fbx                      Commoner_Head (skull, nose, ears, face, neck) and Commoner_Hair
+  Commoner_Body.fbx                      tunic, team tabard, belt, trousers, boots, bare arms and hands
+  Warrior_Body_Armored.fbx               the Warrior body without its head and tunic skirt, worn under armor
 
 Run headless:
   /Applications/Blender.app/Contents/MacOS/Blender -b --python art/blender/build_armor.py [-- --no-render]
@@ -23,6 +23,7 @@ import bpy, bmesh, math, os, sys
 from mathutils import Vector, Matrix
 from mathutils.bvhtree import BVHTree
 from mathutils.geometry import intersect_point_line
+from mathutils.interpolate import poly_3d_calc
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 GAME = os.path.abspath(os.path.join(HERE, "..", ".."))
@@ -51,6 +52,11 @@ MATERIALS = [
     ("Metal_Steel", (0.84, 0.86, 0.90, 1)),
     ("Metal_Bronze", (0.66, 0.37, 0.22, 1)),
     ("Face_Features", (1, 1, 1, 1)),     # textured with the FACE_SWATCH atlas
+    ("Skin_Natural", (0.94, 0.66, 0.47, 1)),
+    ("Hair_Brown", (0.50, 0.29, 0.16, 1)),
+    ("Cloth_Oatmeal", (0.90, 0.82, 0.66, 1)),
+    ("Cloth_Taupe", (0.52, 0.40, 0.30, 1)),
+    ("Leather_Boot", (0.40, 0.25, 0.17, 1)),
 ]
 MAT = {name: i for i, (name, _) in enumerate(MATERIALS)}
 
@@ -276,7 +282,10 @@ def ridge(bm, path, side, half_width, height, mat, centre):
 # ---------------------------------------------------------------- pieces
 
 class Piece:
-    """One exported mesh object. Parts are separate bmeshes, each rigid to a bone."""
+    """One exported mesh object. Parts are separate bmeshes, each rigid to a bone, or with
+    bone None skinned like the nearest point of Warrior_Body (see body_weights); a tuple of
+    bone names does the same limited to those bones. Parts on Head are shrunk by HEAD_M
+    first, so everything worn on the head fits the smaller head."""
 
     def __init__(self, name):
         self.name = name
@@ -305,6 +314,8 @@ class Piece:
         layer = final.verts.layers.int.new('bone')
         bones = []
         for bm, bone, bevel, hard in self.parts:
+            if bone == 'Head':
+                bmesh.ops.transform(bm, matrix=HEAD_M, verts=bm.verts[:])
             bmesh.ops.remove_doubles(bm, verts=bm.verts[:], dist=1e-5)
             bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
             if bevel > 0:
@@ -342,11 +353,17 @@ class Piece:
         final.free()
         groups = {}
         for i, bi in enumerate(bone_of_vert):
-            groups.setdefault(bi, []).append(i)
+            if bones[bi] is None or isinstance(bones[bi], tuple):
+                for name, w in skin_weights(me.vertices[i].co, bones[bi]).items():
+                    groups.setdefault(name, []).append((i, w))
+            else:
+                groups.setdefault(bones[bi], []).append((i, 1.0))
         for mi in used:
             me.materials.append(bpy.data.materials[MATERIALS[mi][0]])
-        for bi, idx in groups.items():
-            ob.vertex_groups.new(name=bones[bi]).add(idx, 1.0, 'REPLACE')
+        for name, members in groups.items():
+            g = ob.vertex_groups.get(name) or ob.vertex_groups.new(name=name)
+            for i, w in members:
+                g.add([i], w, 'REPLACE')
         ob.parent = armature
         ob.modifiers.new('Armature', 'ARMATURE').object = armature
         return ob
@@ -370,6 +387,8 @@ def inherit_material(faces):
 
 
 def swap_side(bone):
+    if bone is None:
+        return None
     if bone.endswith('.L'):
         return bone[:-2] + '.R'
     if bone.endswith('.R'):
@@ -631,79 +650,15 @@ def helmet(s):
     return pc
 
 
-def bare_head(arm):
-    """The Warrior's Face object is hair strands plus a nose. This keeps the nose (hair
-    islands dropped) and adds ears, as a mesh skinned to Head that Unity shows in place of
-    the Face renderer."""
-    face = bpy.data.objects['Face']
-    arm.data.pose_position = 'REST'
-    bpy.context.view_layer.update()
-    M = face.matrix_world.copy()
-    arm.data.pose_position = 'POSE'
-    bpy.context.view_layer.update()
-    src = bmesh.new()
-    src.from_mesh(face.data)
-    seen = set()
-    drop = []
-    for v in src.verts:
-        if v in seen:
-            continue
-        stack = [v]
-        comp = []
-        seen.add(v)
-        while stack:
-            a = stack.pop()
-            comp.append(a)
-            for e in a.link_edges:
-                o = e.other_vert(a)
-                if o not in seen:
-                    seen.add(o)
-                    stack.append(o)
-        top = max((M @ c.co).z for c in comp)
-        if top > 2.70:      # hair strands and ponytail; ears and nose stay below
-            drop += comp
-    bmesh.ops.delete(src, geom=drop, context='VERTS')
-    bmesh.ops.transform(src, matrix=M, verts=src.verts[:])
-    # Ears on the sides of the skull, mapped to the cheek's skin texels so they take the
-    # same texture and team tint as the face.
-    uv = src.loops.layers.uv.active
-    body = bpy.data.objects['Warrior_Body'].data
-    _, _, cheek, _ = SKULL.ray_cast(Vector((0.15, -1.0, 2.38)), Vector((0, 1, 0)))
-    corners = [body.uv_layers.active.data[i].uv for i in body.polygons[cheek].loop_indices]
-    skin = sum(corners, Vector((0, 0))) / len(corners)
-    for sx in (-1, 1):
-        F = frame((sx * 0.268, 0.04, EYE_Z - 0.01), Vector((sx, 0.25, 0)), UP)
-        made = lathe(src, [P(-0.02, 0.085, 0.055), P(0.02, 0.08, 0.05), P(0.038, 0.055, 0.034), P(0.046, 0)], F, 10, 0, cap_first=True)
-        bmesh.ops.recalc_face_normals(src, faces=made)
-        for f in made:
-            f.smooth = True
-            for l in f.loops:
-                l[uv].uv = skin
-    me = bpy.data.meshes.new('Warrior_Head_Bare')
-    src.to_mesh(me)
-    src.free()
-    for m in face.data.materials:
-        me.materials.append(m)
-    ob = bpy.data.objects.new('Warrior_Head_Bare', me)
-    bpy.context.scene.collection.objects.link(ob)
-    ob.vertex_groups.new(name='Head').add(list(range(len(me.vertices))), 1.0, 'REPLACE')
-    ob.parent = arm
-    ob.modifiers.new('Armature', 'ARMATURE').object = arm
-    return ob
-
-
 # --- face
 
-SKULL = None   # BVH of Warrior_Body at rest, for laying features on the face
+SKULL = None   # BVH of the commoner skull (skull_bm) at rest, for laying hair and features on it
 # Atlas cell (4x4 grid) and sRGB colour per feature; written to Textures/Face_Features.png.
 FACE_SWATCH = {
-    'white': ((0, 0), (0.96, 0.95, 0.92)),
-    'iris': ((1, 0), (0.36, 0.2, 0.11)),
-    'pupil': ((2, 0), (0.07, 0.05, 0.04)),
+    'pupil': ((2, 0), (0.12, 0.08, 0.06)),
     'glint': ((3, 0), (1.0, 1.0, 1.0)),
-    'lid': ((0, 1), (0.2, 0.12, 0.07)),
-    'brow': ((1, 1), (0.3, 0.18, 0.1)),
-    'lip': ((2, 1), (0.55, 0.25, 0.2)),
+    'brow': ((1, 1), (0.3, 0.17, 0.09)),
+    'lip': ((2, 1), (0.5, 0.27, 0.2)),
 }
 FACE_ATLAS = os.path.join(MODELS, 'Textures', 'Face_Features.png')
 
@@ -806,27 +761,587 @@ def face_strip(bm, centre, widths, swatch, lift):
 
 
 # Front-view layout on the face (x wearer's left, z up). Nose runs z 2.31..2.51.
-EYE_X, EYE_Z = 0.105, 2.445
+EYE_X, EYE_Z = 0.105, 2.47
 
 
-def face_features():
-    """Eyes, lids, brows and a smile, after current/01_full_body_armor_fit.png."""
-    pc = Piece('Warrior_Face_Features')
+def face_features(pc):
+    """Eyes, brows and mouth after current/00_commoner_base.png, added to `pc` on Head:
+    small dark eyes with a glint, heavy straight brows dipping inward, a faint smile."""
     for sx in (-1, 1):
         bm = pc.part('Head', bevel=0.0, hard=80)
         cx = sx * EYE_X
-        face_ellipse(bm, cx, EYE_Z, 0.043, 0.04, 'white', 0.004)
-        face_ellipse(bm, cx - sx * 0.006, EYE_Z - 0.003, 0.03, 0.035, 'iris', 0.007)
-        face_ellipse(bm, cx - sx * 0.006, EYE_Z - 0.003, 0.015, 0.019, 'pupil', 0.0095)
-        face_ellipse(bm, cx - sx * 0.006 + 0.011, EYE_Z + 0.013, 0.008, 0.008, 'glint', 0.012, seg=8)
-        lid = [(cx + sx * f * 0.05, EYE_Z + 0.03 + 0.012 * (1 - (f / 1.0) ** 2) - (0.012 if f > 0.8 else 0)) for f in (-0.95, -0.6, -0.2, 0.2, 0.6, 0.95)]
-        face_strip(bm, lid, [0.008, 0.013, 0.015, 0.015, 0.013, 0.01], 'lid', 0.0105)
-        # Heavy brows, set a touch low over the eyes for the determined look.
-        brow = [(sx * 0.04, 2.506), (sx * 0.075, 2.522), (sx * 0.115, 2.53), (sx * 0.15, 2.527), (sx * 0.178, 2.515)]
-        face_strip(bm, brow, [0.034, 0.033, 0.03, 0.025, 0.017], 'brow', 0.008)
+        face_ellipse(bm, cx, EYE_Z, 0.026, 0.04, 'pupil', 0.006)
+        face_ellipse(bm, cx + 0.008, EYE_Z + 0.016, 0.008, 0.009, 'glint', 0.0085, seg=8)
+        brow = [(sx * 0.03, 2.548), (sx * 0.075, 2.566), (sx * 0.125, 2.572), (sx * 0.172, 2.566)]
+        face_strip(bm, brow, [0.05, 0.058, 0.056, 0.046], 'brow', 0.012)
     bm = pc.part('Head', bevel=0.0, hard=80)
-    smile = [(f * 0.07, 2.226 + 0.014 * f * f) for f in (-1, -0.66, -0.33, 0, 0.33, 0.66, 1)]
-    face_strip(bm, smile, [0.008, 0.011, 0.012, 0.012, 0.012, 0.011, 0.008], 'lip', 0.005)
+    smile = [(f * 0.062, 2.238 + 0.009 * f * f) for f in (-1, -0.5, 0, 0.5, 1)]
+    face_strip(bm, smile, [0.008, 0.011, 0.012, 0.011, 0.008], 'lip', 0.005)
+
+
+# --- commoner head
+# After current/00_commoner_base.png: the Warrior's skull with a squarer jaw, nose and
+# ears, scaled by HEAD_M toward the art's roughly five-head proportions. HEAD_M also
+# shrinks every other part rigged to Head (face features, hair, helmets) the same way.
+
+HEAD_S = 0.64                          # head size against the Warrior's
+HEAD_PIVOT = Vector((0, 0.0, 2.12))    # chin height at the Head bone's root
+HEAD_LIFT = 0.03                       # up onto the raised shoulders
+HEAD_M = (Matrix.Translation(HEAD_PIVOT + Vector((0, 0, HEAD_LIFT))) @ Matrix.Scale(HEAD_S, 4)
+          @ Matrix.Translation(-HEAD_PIVOT))
+
+
+def smoothstep(e0, e1, x):
+    t = min(1.0, max(0.0, (x - e0) / (e1 - e0)))
+    return t * t * (3 - 2 * t)
+
+
+# Head rings before HEAD_M, in the Warrior's head space (its skull spans the same box, so
+# the nose, helmets and face layout still fit): (z, half-width, front, back, centre y,
+# squareness). A broad flat face, square jaw and wide chin, after the art.
+HEAD_RINGS = [(2.12, 0.19, 0.31, 0.02, 0.03, 3.0), (2.16, 0.235, 0.335, 0.11, 0.04, 3.0), (2.24, 0.262, 0.35, 0.25, 0.05, 2.8),
+              (2.34, 0.28, 0.36, 0.34, 0.06, 2.6), (2.44, 0.29, 0.365, 0.38, 0.06, 2.5), (2.56, 0.295, 0.37, 0.39, 0.06, 2.5),
+              (2.68, 0.29, 0.355, 0.385, 0.06, 2.4), (2.78, 0.26, 0.31, 0.34, 0.06, 2.3), (2.86, 0.19, 0.22, 0.25, 0.06, 2.2),
+              (2.9, 0.08, 0.09, 0.1, 0.06, 2.0)]
+
+
+def skull_bm():
+    bm = bmesh.new()
+    rings = [super_ring(z, w, df, db, cy, n=n, seg=20) for z, w, df, db, cy, n in HEAD_RINGS]
+    ring_loft(bm, rings, MAT['Skin_Natural'], cap_first=True, cap_last=True)
+    return bm
+
+
+def flat_skin(bm):
+    """Plain skin material and no UVs, so the face features' UV layer is the only one."""
+    for layer in list(bm.loops.layers.uv.values()):
+        bm.loops.layers.uv.remove(layer)
+    for f in bm.faces:
+        f.material_index = MAT['Skin_Natural']
+    return bm
+
+
+def nose_bm(arm):
+    """The nose island of the Warrior's Face object (the rest is hair), in world space."""
+    face = bpy.data.objects['Face']
+    arm.data.pose_position = 'REST'
+    bpy.context.view_layer.update()
+    M = face.matrix_world.copy()
+    arm.data.pose_position = 'POSE'
+    bpy.context.view_layer.update()
+    bm = bmesh.new()
+    bm.from_mesh(face.data)
+    seen = set()
+    drop = []
+    for v in bm.verts:
+        if v in seen:
+            continue
+        stack = [v]
+        comp = []
+        seen.add(v)
+        while stack:
+            a = stack.pop()
+            comp.append(a)
+            for e in a.link_edges:
+                o = e.other_vert(a)
+                if o not in seen:
+                    seen.add(o)
+                    stack.append(o)
+        mid = sum((M @ c.co for c in comp), Vector()) / len(comp)
+        if abs(mid.x) > 0.08 or mid.y > -0.25:      # hair strands and ponytail; the nose is front centre
+            drop += comp
+    bmesh.ops.delete(bm, geom=drop, context='VERTS')
+    bmesh.ops.transform(bm, matrix=M, verts=bm.verts[:])
+    # The art's nose is bigger: grown from where it meets the brow.
+    root = Vector((0, -0.31, 2.5))
+    for v in bm.verts:
+        v.co = root + (v.co - root) * 1.25
+    return flat_skin(bm)
+
+
+def commoner_head(arm):
+    """Skull, nose, ears and face features on Head, plus a neck skinned like the body's."""
+    pc = Piece('Commoner_Head')
+    pc.parts.append((skull_bm(), 'Head', 0.0, 80))
+    pc.parts.append((nose_bm(arm), 'Head', 0.0, 80))
+    ears = pc.part('Head', bevel=0.0, hard=80)
+    for sx in (-1, 1):
+        F = frame((sx * 0.265, 0.03, 2.40), Vector((sx, -0.45, 0)), UP)
+        lathe(ears, [P(-0.03, 0.13, 0.08), P(0.04, 0.125, 0.076), P(0.075, 0.09, 0.052), P(0.088, 0)], F, 10,
+              MAT['Skin_Natural'], cap_first=True)
+    face_features(pc)
+    # Thick neck (in final, unshrunk space) up under the jaw, flaring into the trapezius
+    # below the collar: under armor it fills the chest plate's neck opening, where the
+    # Warrior body's dark collar would otherwise show.
+    neck = pc.part(None, bevel=0.0, hard=80)
+    lathe(neck, [P(1.88, 0.27, 0.33, cx=0.02), P(1.95, 0.28, 0.34, cx=0.02), P(2.0, 0.25, 0.27, cx=0.02), P(2.06, 0.2, 0.2), P(2.12, 0.155, 0.16),
+                 P(2.18, 0.14, 0.145), P(2.24, 0.12, 0.125), P(2.29, 0.095, 0.095)], frame((0, 0.05, 0)), 12, MAT['Skin_Natural'])
+    return pc
+
+
+# --- hair
+
+HAIR_C = Vector((0, 0.06, 2.5))   # inside the skull; hair rays aim out from here
+# Hairline elevation (degrees above HAIR_C) by azimuth from the front: a short forehead,
+# sideburns in front of the ears, clear of the ear tops, down to the nape.
+HAIRLINE = [(0, 30), (25, 26), (45, 14), (58, 10), (63, -20), (71, -20), (76, 8), (104, 8), (120, -24), (150, -34),
+            (180, -38)]
+
+
+def hairline(theta):
+    a = abs((theta + 180) % 360 - 180)
+    for (a0, e0), (a1, e1) in zip(HAIRLINE, HAIRLINE[1:]):
+        if a <= a1:
+            return e0 + (e1 - e0) * (a - a0) / (a1 - a0)
+    return HAIRLINE[-1][1]
+
+
+def head_dir(theta, phi):
+    """Unit direction from HAIR_C; theta 0 = front, 90 = wearer's left; phi up from level."""
+    t, p = D(theta), D(phi)
+    return Vector((math.sin(t) * math.cos(p), -math.cos(t) * math.cos(p), math.sin(p)))
+
+
+def on_skull(theta, phi, lift):
+    d = head_dir(theta, phi)
+    hit, _, _, _ = SKULL.ray_cast(HAIR_C + d * 2, -d)
+    return hit + d * lift
+
+
+def hair_lift(theta, f):
+    """Height of the hair mass over the skull at row fraction f (0 hairline, 1 crown):
+    thicker on top, with a quiff over the front."""
+    front = math.exp(-(((theta + 180) % 360 - 180) / 55.0) ** 2)
+    side = math.sin(D(theta)) ** 2 * (1 - f)       # close-cropped over the ears
+    return 0.05 - 0.03 * side + 0.06 * f + 0.06 * front * math.sin(math.pi * min(1.0, 0.25 + f * 1.2))
+
+
+# Locks over the cap: (theta, row fraction, half-width, length, rise off the cap, heading).
+# Heading 0 runs up over the crown, 90 toward the wearer's left, 180 down. After the art:
+# a quiff swept up off the forehead and a little to the wearer's left, locks combed back
+# over the top, short sides swept back and layered locks hanging at the back.
+LOCKS = [(-45, 0.05, 0.13, 0.1, 0.11, -40), (-18, 0.02, 0.15, 0.12, 0.13, -10), (10, 0.02, 0.16, 0.14, 0.14, 20),
+         (36, 0.04, 0.15, 0.14, 0.12, 45), (58, 0.1, 0.12, 0.12, 0.08, 70),
+         (-30, 0.38, 0.15, 0.2, 0.1, 10), (5, 0.38, 0.16, 0.22, 0.11, 20), (40, 0.4, 0.15, 0.2, 0.1, 40),
+         (-60, 0.7, 0.13, 0.18, 0.07, 20), (0, 0.78, 0.14, 0.2, 0.07, 0), (60, 0.7, 0.13, 0.18, 0.07, -20),
+         (120, 0.4, 0.13, 0.2, 0.06, 155), (-120, 0.4, 0.13, 0.2, 0.06, -155), (150, 0.6, 0.14, 0.22, 0.07, 172),
+         (-150, 0.6, 0.14, 0.22, 0.07, -172), (180, 0.35, 0.14, 0.2, 0.06, 180), (160, 0.12, 0.11, 0.15, 0.04, 178),
+         (-160, 0.12, 0.11, 0.15, 0.04, -178)]
+
+
+def hair():
+    """A faceted cap from the hairline to the crown plus blade-shaped locks over it."""
+    pc = Piece('Commoner_Hair')
+    bm = pc.part('Head', bevel=0.0, hard=24)
+    mat = MAT['Hair_Brown']
+    seg, rows = 20, 5
+    grid = []
+    for k in range(-1, rows):
+        f = max(0, k) / rows
+        ring = []
+        for i in range(seg):
+            theta = i * 360 / seg
+            e0 = hairline(theta)
+            phi = e0 + (88 - e0) * f
+            lift = 0.004 if k < 0 else hair_lift(theta, f) + 0.012 * ((i + k) % 2)
+            ring.append(bm.verts.new(on_skull(theta, phi, lift)))
+        grid.append(ring)
+    pole = bm.verts.new(on_skull(0, 90, hair_lift(0, 1.0)))
+    faces = []
+    for r0, r1 in zip(grid, grid[1:]):
+        for i in range(seg):
+            j = (i + 1) % seg
+            faces.append(bm.faces.new((r0[i], r0[j], r1[j], r1[i])))
+    for i in range(seg):
+        faces.append(bm.faces.new((grid[-1][i], grid[-1][(i + 1) % seg], pole)))
+    for theta, f, w, length, rise, heading in LOCKS:
+        e0 = hairline(theta)
+        phi = e0 + (88 - e0) * f
+        d = head_dir(theta, phi)
+        t, p = D(theta), D(phi)
+        e_t = Vector((math.cos(t), math.sin(t), 0))
+        e_p = Vector((-math.sin(t) * math.sin(p), math.cos(t) * math.sin(p), math.cos(p)))
+        h = D(heading)
+        along = e_p * math.cos(h) + e_t * math.sin(h)
+        across = e_t * math.cos(h) - e_p * math.sin(h)
+        b = on_skull(theta, phi, hair_lift(theta, f) - 0.015)
+        base = [bm.verts.new(b + across * x * w + d * y * 0.045) for x, y in ((-1, 0), (0, -1), (1, 0), (0, 1))]
+        tip = bm.verts.new(b + along * length + d * rise)
+        faces.append(bm.faces.new(list(reversed(base))))
+        for i in range(4):
+            faces.append(bm.faces.new((base[i], base[(i + 1) % 4], tip)))
+    for fc in faces:
+        fc.material_index = mat
+    return pc
+
+
+# --- commoner body
+# Tunic, tabard, belt, trousers, boots, bare arms and hands as one mesh. Its parts have
+# no bone of their own: Piece.build gives each vertex the weights of the nearest point
+# on Warrior_Body, so the clothes bend the way the original body did in every clip.
+
+WEIGHTS = None   # Warrior_Body at rest: (BVH, vertex positions, polygons, per-vertex weights)
+LIMITED = {}     # bone-name tuple -> (BVH of the Warrior_Body faces those bones move, their indices)
+
+
+def body_weights():
+    body = bpy.data.objects['Warrior_Body']
+    names = [g.name for g in body.vertex_groups]
+    cos = [body.matrix_world @ v.co for v in body.data.vertices]
+    polys = [tuple(p.vertices) for p in body.data.polygons]
+    weights = [{names[g.group]: g.weight for g in v.groups if g.weight > 0.001} for v in body.data.vertices]
+    return BVHTree.FromPolygons(cos, polys), cos, polys, weights
+
+
+def skin_weights(co, allow=None):
+    """Weights at the nearest point of Warrior_Body, interpolated over its face; top four.
+    With `allow`, the nearest point among faces those bones move, and only their weights:
+    a wide boot cuff would otherwise reach the other leg and stretch between the two."""
+    tree, cos, polys, weights = WEIGHTS
+    if allow:
+        if allow not in LIMITED:
+            keep = [i for i, p in enumerate(polys) if any(weights[v].get(n, 0) > 0.1 for v in p for n in allow)]
+            LIMITED[allow] = (BVHTree.FromPolygons(cos, [polys[i] for i in keep]), keep)
+        sub, keep = LIMITED[allow]
+        loc, _, fi, _ = sub.find_nearest(co)
+        fi = keep[fi]
+    else:
+        loc, _, fi, _ = tree.find_nearest(co)
+    vids = polys[fi]
+    acc = {}
+    for i, b in zip(vids, poly_3d_calc([cos[i] for i in vids], loc)):
+        for name, w in weights[i].items():
+            acc[name] = acc.get(name, 0.0) + b * w
+    if allow and any(name in allow and w > 0.01 for name, w in acc.items()):
+        acc = {name: w for name, w in acc.items() if name in allow}
+    top = sorted(acc.items(), key=lambda kv: -kv[1])[:4]
+    total = sum(w for _, w in top)
+    return {name: w / total for name, w in top if w / total > 0.01}
+
+
+def super_ring(z, w, df, db, cy, n=2.6, seg=24, cx=0.0):
+    """Superellipse cross-section at height z: half-width w, front/back depths df/db
+    from y = cy. Starts at the front and runs toward the wearer's left."""
+    pts = []
+    for i in range(seg):
+        a = 2 * math.pi * i / seg
+        s, c = math.sin(a), math.cos(a)
+        x = w * math.copysign(abs(s) ** (2 / n), s)
+        f = math.copysign(abs(c) ** (2 / n), c)
+        pts.append(Vector((cx + x, cy - (df if f > 0 else db) * f, z)))
+    return pts
+
+
+def ring_loft(bm, rings, mat, cap_first=False, cap_last=False):
+    vs = [[bm.verts.new(p) for p in r] for r in rings]
+    n = len(vs[0])
+    faces = []
+    for r0, r1 in zip(vs, vs[1:]):
+        for i in range(n):
+            j = (i + 1) % n
+            faces.append(bm.faces.new((r0[i], r0[j], r1[j], r1[i])))
+    if cap_first:
+        faces.append(bm.faces.new(list(reversed(vs[0]))))
+    if cap_last:
+        faces.append(bm.faces.new(vs[-1]))
+    for f in faces:
+        f.material_index = mat
+    return faces
+
+
+def slab(bm, outer, inner, mat, wrap=False):
+    """Thin closed solid between two matching grids (rows of points); `wrap` joins each
+    row's last column back to its first, for bands."""
+    vo = [[bm.verts.new(p) for p in row] for row in outer]
+    vi = [[bm.verts.new(p) for p in row] for row in inner]
+    nr, nc = len(outer), len(outer[0])
+    cols = list(range(nc)) + ([0] if wrap else [])
+    faces = []
+    for g in (vo, vi):
+        for r in range(nr - 1):
+            for a, b in zip(cols, cols[1:]):
+                faces.append(bm.faces.new((g[r][a], g[r][b], g[r + 1][b], g[r + 1][a])))
+    rims = [[(0, c) for c in cols], [(nr - 1, c) for c in cols]]
+    if not wrap:
+        rims += [[(r, 0) for r in range(nr)], [(r, nc - 1) for r in range(nr)]]
+    for rim in rims:
+        for (ra, ca), (rb, cb) in zip(rim, rim[1:]):
+            faces.append(bm.faces.new((vo[ra][ca], vo[rb][cb], vi[rb][cb], vi[ra][ca])))
+    for f in faces:
+        f.material_index = mat
+    return faces
+
+
+def remeshed(bm, voxel, target):
+    """Voxel remesh (merges overlapping shapes into one surface) then decimate to about
+    `target` faces. Consumes bm; every face of the result gets bm's first material."""
+    bm.faces.ensure_lookup_table()
+    mat = bm.faces[0].material_index
+    me = bpy.data.meshes.new('remesh_src')
+    bm.to_mesh(me)
+    bm.free()
+    ob = bpy.data.objects.new('remesh_src', me)
+    bpy.context.scene.collection.objects.link(ob)
+    r = ob.modifiers.new('remesh', 'REMESH')
+    r.mode = 'VOXEL'
+    r.voxel_size = voxel
+    deps = bpy.context.evaluated_depsgraph_get()
+    dense = bpy.data.meshes.new_from_object(ob.evaluated_get(deps))
+    ob.modifiers.clear()
+    ob.data = dense
+    d = ob.modifiers.new('decimate', 'DECIMATE')
+    d.ratio = min(1.0, target / max(1, len(dense.polygons)))
+    deps = bpy.context.evaluated_depsgraph_get()
+    low = bpy.data.meshes.new_from_object(ob.evaluated_get(deps))
+    out = bmesh.new()
+    out.from_mesh(low)
+    for f in out.faces:
+        f.material_index = mat
+    bpy.data.objects.remove(ob)
+    for m in (me, dense, low):
+        bpy.data.meshes.remove(m)
+    return out
+
+
+def tree_of(*bms):
+    verts, polys = [], []
+    for bm in bms:
+        base = len(verts)
+        verts += [v.co.copy() for v in bm.verts]
+        bm.verts.index_update()
+        polys += [tuple(base + v.index for v in f.verts) for f in bm.faces]
+    return BVHTree.FromPolygons(verts, polys)
+
+
+def lerp_bones(chain, z):
+    """Point on a chain of bone segments (head, tail) at height z (chains run downward)."""
+    for h, t in chain:
+        if t.z <= z <= h.z:
+            return h.lerp(t, (h.z - z) / (h.z - t.z))
+    h, t = chain[0] if z > chain[0][0].z else chain[-1]
+    return h.lerp(t, (h.z - z) / (h.z - t.z))
+
+
+# Torso from inside the skirt up to the collar: (z, half-width, front, back, centre y).
+TORSO = [(1.34, 0.322, 0.262, 0.27, 0.05), (1.47, 0.315, 0.255, 0.265, 0.05), (1.60, 0.35, 0.29, 0.28, 0.04),
+         (1.75, 0.385, 0.32, 0.29, 0.03), (1.90, 0.4, 0.315, 0.29, 0.03), (2.02, 0.38, 0.28, 0.275, 0.03),
+         (2.10, 0.29, 0.215, 0.225, 0.03), (2.14, 0.19, 0.17, 0.18, 0.03)]
+SKIRT = [P(1.45, 0.258, 0.312), P(1.30, 0.295, 0.365), P(1.15, 0.335, 0.415), P(0.99, 0.37, 0.46)]
+SLIT = 1.15     # the skirt splits into front and back flaps below this
+SKIRT_M = frame((0, 0.05, 0))
+TABARD_HALF = 0.23
+
+
+def tunic(bm):
+    """Body and short sleeves remeshed into one surface, cuffed sleeve hems, a collar,
+    and the skirt below the belt split at the sides. Returns a BVH of the result."""
+    cloth = MAT['Cloth_Oatmeal']
+    raw = bmesh.new()
+    ring_loft(raw, [super_ring(z, w, df, db, cy) for z, w, df, db, cy in TORSO], cloth, cap_first=True, cap_last=True)
+    for side in ('L', 'R'):
+        h, t = BONES['UpperArm.' + side]
+        pts = [h.lerp(t, f) + Vector((0, 0, 0.02 * (1 - f))) for f in (-0.3, 0.0, 0.3, 0.6)]
+        tube(raw, pts, [0.14, 0.155, 0.15, 0.14], 12, cloth, UP)
+    upper = remeshed(raw, 0.016, 520)
+    parts = [upper]
+    for side in ('L', 'R'):
+        h, t = BONES['UpperArm.' + side]
+        M = frame(h.lerp(t, 0.6), t - h, UP)
+        lathe(bm, shell([P(-0.03, 0.146), P(0.005, 0.148), P(0.012, 0.143)], 0.02), M, 12, cloth, closed=True)
+    lathe(bm, shell([P(2.105, 0.185, 0.195, cx=0.002), P(2.14, 0.18, 0.19, cx=0.002)], 0.025), frame((0, 0.04, 0)), 16, cloth,
+          closed=True)
+    skirt = bmesh.new()
+    top = [p for p in SKIRT if p['t'] >= SLIT]
+    low = [p for p in SKIRT if p['t'] <= SLIT]
+    lathe(skirt, shell(top, 0.02), SKIRT_M, 24, cloth, closed=True)
+    for arc in ((-80, 80), (100, 260)):       # front and back flaps; slits at the sides
+        lathe(skirt, shell(low, 0.02), SKIRT_M, 10, cloth, arc=arc, closed=True, caps=True)
+    tree = tree_of(upper, skirt)
+    append(bm, upper)
+    append(bm, skirt)
+    return tree
+
+
+def append(bm, src):
+    """Adds bmesh `src` (freed) to `bm`, keeping its material indices."""
+    me = bpy.data.meshes.new('tmp_part')
+    src.to_mesh(me)
+    src.free()
+    bm.from_mesh(me)
+    bpy.data.meshes.remove(me)
+
+
+def tabard(bm, tree):
+    """Team-coloured panels front and back, hanging past the tunic hem, joined by straps
+    over the shoulders. Laid on the tunic by ray casts."""
+    blue = MAT['Team_Blue']
+    xs = [TABARD_HALF * (2 * i / 4 - 1) for i in range(5)]
+    zs = [2.1, 2.04, 1.97, 1.88, 1.76, 1.62, 1.48, 1.36, 1.24, 1.16, 0.93]
+
+    def panel(sign, bottom):
+        outer, inner = [], []
+        last = {}
+        for z in zs:
+            z = max(z, bottom)
+            ro, ri = [], []
+            for x in xs:
+                if z > SLIT:
+                    hit, _, _, _ = tree.ray_cast(Vector((x, -2.0 * sign, z)), Vector((0, sign, 0)))
+                    last[x] = hit
+                else:
+                    # Hangs straight past the flaring skirt instead of following its facets.
+                    hit = Vector((x, last[x].y - sign * 0.3 * (SLIT - z), z))
+                lift = 0.012 * smoothstep(1.85, 2.05, z)      # clear of the shoulders' curve
+                ro.append(hit + Vector((0, -sign * (0.024 + lift), 0)))
+                ri.append(hit + Vector((0, -sign * (0.008 + lift), 0)))
+            outer.append(ro)
+            inner.append(ri)
+        slab(bm, outer, inner, blue)
+
+    panel(1, 0.92)
+    panel(-1, 0.97)
+    for sx in (-1, 1):
+        cols = [sx * x for x in (0.13, 0.18, TABARD_HALF)]
+        outer, inner = [], []
+        for k in range(7):
+            phi = D(30 + 120 * k / 6)
+            d = Vector((0, -math.cos(phi), math.sin(phi)))
+            ro, ri = [], []
+            for x in cols:
+                c = Vector((x, 0.03, 1.9))
+                hit, _, _, _ = tree.ray_cast(c + d * 2, -d)
+                ro.append(hit + d * 0.027)
+                ri.append(hit + d * 0.01)
+            outer.append(ro)
+            inner.append(ri)
+        slab(bm, outer, inner, blue)
+
+
+def belt(bm, tree):
+    """Brown belt over tunic and tabard with a square iron buckle at the front."""
+    leather = MAT['Leather_Boot']
+    rows_o, rows_i = [], []
+    for z in (1.425, 1.515):
+        ro, ri = [], []
+        for i in range(24):
+            a = 2 * math.pi * i / 24
+            d = Vector((math.sin(a), -math.cos(a), 0))
+            c = Vector((0, 0.05, z))
+            hit, _, _, _ = tree.ray_cast(c + d * 2, -d)
+            ro.append(hit + d * 0.03)
+            ri.append(hit + d * 0.01)
+        rows_o.append(ro)
+        rows_i.append(ri)
+    slab(bm, rows_o, rows_i, leather, wrap=True)
+    front = (rows_o[0][0] + rows_o[1][0]) / 2
+    B = frame(front + Vector((0, -0.006, 0)), FRONT, LEFT)     # local x across, y up
+    iron = MAT['Metal_Dark']
+    for x, y, sx, sy in ((0, 0.052, 0.15, 0.026), (0, -0.052, 0.15, 0.026), (0.062, 0, 0.026, 0.13), (-0.062, 0, 0.026, 0.13),
+                         (-0.012, 0, 0.016, 0.1)):
+        box(bm, B @ Matrix.Translation((x, y, 0.012)), (sx, sy, 0.024), iron)
+
+
+def trousers(pc):
+    taupe = MAT['Cloth_Taupe']
+    bm = pc.part(None, bevel=0.0, hard=89)
+    ring_loft(bm, [super_ring(1.40, 0.30, 0.235, 0.265, 0.05), super_ring(1.18, 0.35, 0.25, 0.285, 0.05),
+                   super_ring(1.02, 0.37, 0.24, 0.275, 0.05, n=2.2)], taupe, cap_last=True)
+    for side, sx in (('L', 1), ('R', -1)):
+        bm = pc.part(('Hips', 'Body', 'UpperLeg.' + side, 'LowerLeg.' + side), bevel=0.0, hard=89)
+        chain = [BONES['UpperLeg.' + side], BONES['LowerLeg.' + side]]
+        zs = [1.18, 1.02, 0.86, 0.72, 0.62, 0.55, 0.44, 0.32]
+        radii = [0.19, 0.2, 0.194, 0.182, 0.174, 0.162, 0.135, 0.12]
+        # A little outward, so the baggy legs part at the crotch.
+        pts = [lerp_bones(chain, z) + Vector((sx * 0.012, 0, 0)) for z in zs]
+        tube(bm, pts, radii, 12, taupe, LEFT)
+
+
+# Boot foot from the heel toward the toes: (distance, half-width, height over the sole).
+BOOT_FOOT = [(0.0, 0.12, 0.16), (0.08, 0.14, 0.2), (0.22, 0.158, 0.18), (0.36, 0.165, 0.155), (0.47, 0.158, 0.14),
+             (0.54, 0.13, 0.115), (0.575, 0.07, 0.08)]
+BOOT_HEEL = 0.17      # heel y; the toe ends 0.575 in front of it
+
+
+def boots(pc):
+    """Chunky work boots: shaft, folded cuff, rounded toe box, thick sole and an instep strap.
+    Each follows only its own shin and foot, or the cuffs stretch up to the knee in a stride."""
+    brown = MAT['Leather_Boot']
+    dark = MAT['Leather_Dark']
+    dome = [(math.cos(D(a)), math.sin(D(a)) ** 0.6) for a in range(0, 181, 30)]
+    for side, sx in (('L', 1), ('R', -1)):
+        bm = pc.part(('LowerLeg.' + side, 'Foot.' + side), bevel=0.0, hard=55)
+        h, t = BONES['LowerLeg.' + side]
+        chain = [(h, t)]
+        rings = [super_ring(z, 0.125, 0.14, 0.135, lerp_bones(chain, z).y + 0.005, n=2.3, seg=12, cx=lerp_bones(chain, z).x)
+                 for z in (0.08, 0.24, 0.46)]
+        ring_loft(bm, rings, brown, cap_first=True, cap_last=True)
+        c = lerp_bones(chain, 0.47)
+        M = frame((c.x, c.y + 0.005, 0))
+        lathe(bm, shell([P(0.40, 0.2, 0.19), P(0.48, 0.215, 0.205), P(0.565, 0.235, 0.225)], 0.06), M, 12, brown, closed=True)
+        x0 = c.x + sx * 0.008
+        F = frame((x0, BOOT_HEEL, 0.04), FRONT, LEFT)        # local z toward the toes, y up
+        loft(bm, F, dome, [(d, w, ht) for d, w, ht in BOOT_FOOT], brown)
+        loft(bm, F, dome, [(0.2, 0.163, 0.186), (0.27, 0.165, 0.175)], dark)       # instep strap
+        rim = 0.016
+        outline = [(x0 - w - rim, BOOT_HEEL - d) for d, w, _ in BOOT_FOOT] + [(x0, BOOT_HEEL - 0.575 - rim)] + \
+                  [(x0 + w + rim, BOOT_HEEL - d) for d, w, _ in reversed(BOOT_FOOT)] + [(x0, BOOT_HEEL + rim)]
+        plate(bm, outline, 0.045, Matrix(), dark, z0=-0.002)
+
+
+def arms(bm):
+    """Bare, muscular arms from inside the sleeves to the wrists."""
+    skin = MAT['Skin_Natural']
+    for side in ('L', 'R'):
+        h0, t0 = BONES['UpperArm.' + side]
+        h1, t1 = BONES['LowerArm.' + side]
+        pts = [h0.lerp(t0, 0.32), h0.lerp(t0, 0.6), h0.lerp(t0, 0.85), t0, h1.lerp(t1, 0.12), h1.lerp(t1, 0.38), h1.lerp(t1, 0.7),
+               h1.lerp(t1, 1.02)]
+        tube(bm, pts, [0.105, 0.11, 0.1, 0.094, 0.1, 0.097, 0.085, 0.072], 10, skin, UP)
+
+
+def tube_auto(bm, pts, radii, seg, mat):
+    """tube() with its side taken from the plane of the (roughly planar) path."""
+    side = (pts[1] - pts[0]).cross(pts[-1] - pts[0])
+    if side.length < 1e-6:
+        side = (pts[-1] - pts[0]).orthogonal()
+    return tube(bm, pts, radii, seg, mat, side.normalized())
+
+
+def hands(bm):
+    """Big open hands: a palm block, four fingers along the Fist bones and a thumb along
+    Thumb1/2, in the rest pose (palm down, thumb toward the front)."""
+    skin = MAT['Skin_Natural']
+    wrist = BONES['Fist.L'][0]
+    section = [(math.cos(D(a)), math.sin(D(a))) for a in range(0, 360, 36)]
+    for sx in (1, -1):
+        def at(u, v, w):
+            # u toward the fingertips, v toward the thumb, w the back of the hand
+            return Vector((sx * (wrist.x + u), wrist.y - v, wrist.z + w))
+        palm = [[at(u, v0 + hw * x, ht * y) for x, y in section]
+                for u, hw, ht, v0 in ((-0.03, 0.07, 0.055, 0.0), (0.02, 0.092, 0.052, 0.005), (0.11, 0.098, 0.048, 0.008),
+                                      (0.15, 0.09, 0.04, 0.008))]
+        ring_loft(bm, palm, skin, cap_first=True, cap_last=True)
+        for v, length, r in ((0.062, 0.18, 0.03), (0.021, 0.19, 0.031), (-0.021, 0.18, 0.03), (-0.062, 0.15, 0.027)):
+            pts = [at(0.12 + length * f, v + 0.008, -0.01 - 0.04 * f * f) for f in (0.0, 0.45, 0.8, 0.93, 1.0)]
+            tube_auto(bm, pts, [r, r * 0.97, r * 0.92, r * 0.75, 0.0], 6, skin)
+        pts = [at(0.02, 0.075, -0.015), at(0.075, 0.12, -0.05), at(0.13, 0.15, -0.09), at(0.15, 0.156, -0.1), at(0.16, 0.16, -0.108)]
+        tube_auto(bm, pts, [0.037, 0.034, 0.03, 0.023, 0.0], 6, skin)
+
+
+def commoner_body():
+    pc = Piece('Commoner_Body')
+    cloth = pc.part(None, bevel=0.0, hard=89)
+    tree = tunic(cloth)
+    # The tabard hangs from the body, not the legs: per-column leg weights zigzag its hem.
+    tabard(pc.part(('Hips', 'Body', 'Abdomen', 'Torso', 'Neck', 'Head', 'Shoulder.L', 'Shoulder.R', 'UpperArm.L',
+                    'UpperArm.R'), bevel=0.0, hard=60), tree)
+    trousers(pc)
+    boots(pc)
+    skin = pc.part(None, bevel=0.0, hard=89)
+    arms(skin)
+    hands(skin)
+    clothed = tree_of(*[b for b, _, _, _ in pc.parts[:2]])
+    belt(pc.part(None, bevel=0.006, hard=50), clothed)
     return pc
 
 
@@ -1131,9 +1646,10 @@ def weapon_frame(arm):
 
 
 def armored_body(arm):
-    """Warrior_Body minus its tunic skirt and flaps (faces near the hips that hang more
-    than 0.2 off the leg bones) and minus what the thigh plates enclose. Weights, UVs and
-    normals are kept; Unity shows it in place of Warrior_Body while armor is worn."""
+    """Warrior_Body minus its head and collar (Commoner_Head replaces them), its tunic skirt and flaps
+    (faces near the hips that hang more than 0.2 off the leg bones) and what the thigh
+    plates enclose. Weights, UVs and normals are kept; Unity shows it in place of
+    Warrior_Body while armor is worn."""
     src = bpy.data.objects['Warrior_Body']
     me = src.data.copy()
     me.name = 'Warrior_Body_Armored'
@@ -1153,6 +1669,8 @@ def armored_body(arm):
         return best
 
     co = [ob.matrix_world @ v.co for v in me.vertices]
+    gi = src.vertex_groups['Head'].index
+    head = [next((g.weight for g in v.groups if g.group == gi), 0.0) > 0.5 for v in me.vertices]
     skirt = [p.z < 1.15 and off_leg(p) > 0.2 for p in co]
     inside = [0.76 < p.z < 1.1 and off_leg(p) <= 0.2 for p in co]
     for o in bpy.data.objects:
@@ -1162,7 +1680,11 @@ def armored_body(arm):
     bpy.ops.object.mode_set(mode='EDIT')
     bm = bmesh.from_edit_mesh(me)
     bm.verts.ensure_lookup_table()
-    kill = [f for f in bm.faces if any(skirt[v.index] for v in f.verts) or all(inside[v.index] for v in f.verts)]
+    # The neck ring and trapezius tops too: their dark collar texture showed above the chest
+    # plates once the smaller head stopped covering them; the commoner neck fills the gap.
+    collar = [p.z > 1.95 and abs(p.x) < 0.36 for p in co]
+    kill = [f for f in bm.faces if any(skirt[v.index] for v in f.verts) or all(inside[v.index] for v in f.verts)
+            or all(head[v.index] or collar[v.index] for v in f.verts)]
     print("ARMORED BODY drops", len(kill), "of", len(bm.faces), "faces")
     bmesh.ops.delete(bm, geom=kill, context='FACES')
     bmesh.update_edit_mesh(me)
@@ -1246,12 +1768,12 @@ def show_tier(tier):
     for o in bpy.data.objects:
         if o.name.startswith(GEAR_PREFIXES):
             o.hide_render = o.name not in (shield, weapon)
-    for name in ('Warrior_Body', 'ShoulderPad.L', 'ShoulderPad.R'):
-        bpy.data.objects[name].hide_render = tier > 0
-    bpy.data.objects['Warrior_Body_Armored'].hide_render = tier == 0
-    for name in ('Face', 'Warrior_Sword'):
+    for name in ('Warrior_Body', 'ShoulderPad.L', 'ShoulderPad.R', 'Face', 'Warrior_Sword'):
         bpy.data.objects[name].hide_render = True
-    bpy.data.objects['Warrior_Head_Bare'].hide_render = False
+    bpy.data.objects['Commoner_Body'].hide_render = tier > 0
+    bpy.data.objects['Warrior_Body_Armored'].hide_render = tier == 0
+    bpy.data.objects['Commoner_Head'].hide_render = False
+    bpy.data.objects['Commoner_Hair'].hide_render = TIERS[tier][1] not in (None, 'Armor_Leather')     # under a helmet
 
 
 def render_previews():
@@ -1334,13 +1856,12 @@ def montage(paths, out):
 
 
 def main():
-    global WEAPON, SKULL
+    global WEAPON, SKULL, WEIGHTS
     arm = setup()
     idle = idle_pose()
     WEAPON = weapon_frame(arm)
-    body_src = bpy.data.objects['Warrior_Body']
-    SKULL = BVHTree.FromPolygons([body_src.matrix_world @ v.co for v in body_src.data.vertices],
-                                 [tuple(p.vertices) for p in body_src.data.polygons])
+    WEIGHTS = body_weights()
+    SKULL = tree_of(skull_bm())
     face_atlas()
     sets = []
     for tier in ('leather', 'iron', 'gilded'):
@@ -1357,15 +1878,15 @@ def main():
     for builder in builders:
         ob = builder().build(arm, gear)
         export(arm, [ob], ob.name + '.fbx')
-    bare = bare_head(arm)
-    export(arm, [bare], 'Warrior_Head_Bare.fbx')
-    features = face_features().build(arm, bpy.context.scene.collection)
-    export(arm, [features], 'Warrior_Face_Features.fbx')
+    scene_col = bpy.context.scene.collection
+    head = commoner_head(arm).build(arm, scene_col)
+    export(arm, [head, hair().build(arm, scene_col)], 'Commoner_Head.fbx')
+    export(arm, [commoner_body().build(arm, scene_col)], 'Commoner_Body.fbx')
     body = armored_body(arm)
     export(arm, [body], 'Warrior_Body_Armored.fbx')
     tri = 0
     for o in bpy.data.objects:
-        if o.type == 'MESH' and o.name.startswith(('Armor_', 'Shield_', 'Weapon_')):
+        if o.type == 'MESH' and o.name.startswith(('Armor_', 'Shield_', 'Weapon_', 'Commoner_')):
             o.data.calc_loop_triangles()
             tri += len(o.data.loop_triangles)
             print("MESH %-28s tris=%5d" % (o.name, len(o.data.loop_triangles)))

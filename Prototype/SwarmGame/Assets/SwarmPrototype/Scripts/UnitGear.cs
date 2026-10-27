@@ -14,22 +14,26 @@ namespace SwarmPrototype
     // Armor, shields and weapons are skinned meshes built in Blender on the Warrior's own
     // armature (art/blender/build_armor.py -> Resources/SwarmModels/*.fbx). Each piece is
     // re-bound to this model's bones by name, so it follows the animations. If a set is
-    // missing the old primitive armor or tinted sword is used instead. The Warrior's hair
-    // is always swapped for a bare head with ears and a face (eyes, brows, mouth), and
-    // under armor its body for one without the tunic skirt, which would otherwise hang
-    // out below the plates.
+    // missing the old primitive armor or tinted sword is used instead. The Warrior's head
+    // and hair are always swapped for the commoner's (art/current/00_commoner_base.png):
+    // a smaller square-jawed head with a face and spiky hair, the hair hidden under
+    // helmets. Unarmored, the body is the commoner's tunic, team-coloured tabard, belt,
+    // trousers and boots; under armor it is the Warrior body without head or tunic skirt.
     public class UnitGear : MonoBehaviour
     {
         static readonly int[] TierStarts = { 1, 6, 11 };
         static readonly string[] ArmorSets = { null, "Armor_Leather", "Armor_Iron", "Armor_Gilded" };
         static readonly string[] ShieldSets = { null, "Shield_Bronze_Round", "Shield_Iron_Round", "Shield_Gilded_Tall" };
         static readonly string[] WeaponSets = { "Weapon_Pitchfork", "Weapon_Sword_Bronze", "Weapon_Sword_Steel", "Weapon_Sword_Gilded" };
-        // The Face mesh without its hair (nose and ears), shown in its place at every tier,
-        // and the eyes, brows and mouth that sit on the skull.
-        const string BareHead = "Warrior_Head_Bare";
-        const string FaceFeatures = "Warrior_Face_Features";
-        // Warrior_Body without the tunic skirt, shown in its place while armor is worn.
+        // Commoner_Head (skull, ears, face, neck) and Commoner_Hair, worn at every tier.
+        const string CommonerHead = "Commoner_Head";
+        const string CommonerHair = "Commoner_Hair";
+        // The unarmored body: clothes, bare arms and hands.
+        const string CommonerBody = "Commoner_Body";
+        // Warrior_Body without its head or tunic skirt, shown in its place while armor is worn.
         const string ArmoredBody = "Warrior_Body_Armored";
+        // Armor tiers whose set has a helmet, which the hair would poke through.
+        static readonly bool[] Helmeted = { false, false, true, true };
         const string ModelFolder = "SwarmModels/";
         static readonly Dictionary<(string, int, Color), Material> styledMaterials = new Dictionary<(string, int, Color), Material>();
 
@@ -44,10 +48,12 @@ namespace SwarmPrototype
         Renderer sword;
         Transform weaponBone, weaponEnd, head, headEnd, shoulderL, shoulderR, lowerArmL, fistL, torso, neck;
         readonly Dictionary<string, Transform> bones = new Dictionary<string, Transform>();
-        // Base-body parts that gear replaces: the model's own shoulder pads, the hair, the skirted body.
+        // Base-body parts that gear replaces: the model's own shoulder pads, its head and
+        // hair (the Face mesh), the skirted body.
         readonly List<Renderer> shoulderPads = new List<Renderer>();
         Renderer hair, body;
         readonly List<GameObject> baseParts = new List<GameObject>();
+        GameObject commonerHair;
         Color team = new Color(0.1f, 0.33f, 0.85f);
         Vector3 weaponBoneScale = Vector3.one;
         Vector3 swordScale = Vector3.one;
@@ -98,8 +104,11 @@ namespace SwarmPrototype
                 else if (r.name == "Face") gear.hair = r;
                 else if (r.name == "Warrior_Body") gear.body = r;
             }
-            if (gear.hair != null && gear.Dress(BareHead, 0, gear.baseParts, gear.hair.sharedMaterials)) gear.hair.enabled = false;
-            gear.Dress(FaceFeatures, 0, gear.baseParts);
+            if (gear.Dress(CommonerHead, 0, gear.baseParts))
+            {
+                if (gear.hair != null) gear.hair.enabled = false;
+                gear.commonerHair = gear.baseParts.Find(p => p.name == CommonerHair);
+            }
             if (gear.sword != null)
             {
                 gear.swordScale = gear.sword.transform.localScale;
@@ -191,9 +200,16 @@ namespace SwarmPrototype
             armorTier = tier;
             foreach (var piece in armorPieces) Destroy(piece);
             armorPieces.Clear();
-            foreach (var pad in shoulderPads) pad.enabled = tier == 0;
+            foreach (var pad in shoulderPads) pad.enabled = false;
             if (body != null) body.enabled = true;
-            if (tier == 0) return;
+            if (commonerHair != null) commonerHair.SetActive(!Helmeted[tier]);
+            if (tier == 0)
+            {
+                // The commoner's clothes; the Warrior body and its pads only if they're missing.
+                if (Dress(CommonerBody, 0, armorPieces)) { if (body != null) body.enabled = false; }
+                else foreach (var pad in shoulderPads) pad.enabled = true;
+                return;
+            }
             if (!Dress(ArmorSets[tier], tier, armorPieces))
             {
                 BuildPrimitiveArmor(tier);
@@ -283,6 +299,11 @@ namespace SwarmPrototype
                 case "Metal_Steel": color = new Color(0.84f, 0.86f, 0.9f); metallic = 0.35f; gloss = 0.65f; break;
                 case "Metal_Bronze": color = new Color(0.66f, 0.37f, 0.22f); metallic = 0.3f; gloss = 0.5f; break;
                 case "Team_Blue": color = team; gloss = 0.3f; break;
+                case "Skin_Natural": color = new Color(0.94f, 0.66f, 0.47f); gloss = 0.2f; break;
+                case "Hair_Brown": color = new Color(0.5f, 0.29f, 0.16f); gloss = 0.25f; break;
+                case "Cloth_Oatmeal": color = new Color(0.9f, 0.82f, 0.66f); gloss = 0.1f; break;
+                case "Cloth_Taupe": color = new Color(0.52f, 0.4f, 0.3f); gloss = 0.1f; break;
+                case "Leather_Boot": color = new Color(0.4f, 0.25f, 0.17f); gloss = 0.3f; break;
                 default: return null;
             }
             var m = Visuals.Plain(color);
