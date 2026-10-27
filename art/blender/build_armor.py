@@ -781,6 +781,34 @@ def face_features(pc):
     face_strip(bm, smile, [0.008, 0.011, 0.012, 0.011, 0.008], 'lip', 0.005)
 
 
+def blink_key(ob):
+    """Shape key 'Blink' on the built Commoner_Head: each eye's dark oval squashed into a
+    line a little below its middle and its glint collapsed, both kept on the skin by
+    ray casting the skull again. HomeUnitPreview plays it now and then."""
+    me = ob.data
+    inv = HEAD_M.inverted()
+    glint_uv = Vector(face_uv('glint'))
+    features = {i for i, m in enumerate(me.materials) if m.name == 'Face_Features'}
+    uv = me.uv_layers.active.data
+    glints = {me.loops[li].vertex_index for p in me.polygons if p.material_index in features
+              for li in p.loop_indices if (Vector(uv[li].uv) - glint_uv).length < 0.01}
+    ob.shape_key_add(name='Basis', from_mix=False)
+    key = ob.shape_key_add(name='Blink', from_mix=False)
+    eyes = {v for p in me.polygons if p.material_index in features for v in p.vertices}
+    for i in eyes:
+        co = inv @ me.vertices[i].co
+        cx = EYE_X if co.x > 0 else -EYE_X
+        if abs(co.x - cx) > 0.045 or abs(co.z - EYE_Z) > 0.06:
+            continue
+        x, z = co.x, EYE_Z - 0.008 + (co.z - EYE_Z) * 0.2
+        if i in glints:
+            x, z = cx + 0.008, EYE_Z - 0.008
+        was, _, _, _ = SKULL.ray_cast(Vector((co.x, -1.0, co.z)), Vector((0, 1, 0)))
+        now, _, _, _ = SKULL.ray_cast(Vector((x, -1.0, z)), Vector((0, 1, 0)))
+        lift = co - was - (Vector((0, 0.003, 0)) if i in glints else Vector())
+        key.data[i].co = HEAD_M @ (now + lift)
+
+
 # --- commoner head
 # After current/00_commoner_base.png: the Warrior's skull with a squarer jaw, nose and
 # ears, scaled by HEAD_M toward the art's roughly five-head proportions. HEAD_M also
@@ -991,8 +1019,35 @@ def body_weights():
     names = [g.name for g in body.vertex_groups]
     cos = [body.matrix_world @ v.co for v in body.data.vertices]
     polys = [tuple(p.vertices) for p in body.data.polygons]
-    weights = [{names[g.group]: g.weight for g in v.groups if g.weight > 0.001} for v in body.data.vertices]
+    weights = []
+    for v in body.data.vertices:
+        w = {}
+        for g in v.groups:
+            if g.weight > 0.001:
+                name = HAND_OF.get(names[g.group], names[g.group])
+                w[name] = w.get(name, 0.0) + g.weight
+        weights.append(w)
     return BVHTree.FromPolygons(cos, polys), cos, polys, weights
+
+
+# A few Warrior_Body hand vertices ride the weapon bone; they go to the hand instead, so the
+# menu idle can slide the pitchfork through the fist without dragging skin along.
+HAND_OF = {'Weapon.R': 'Fist.R'}
+
+
+def rehome_weights(ob):
+    """Moves vertex weights of HAND_OF's bones onto the hand."""
+    for src, dst in HAND_OF.items():
+        g = ob.vertex_groups.get(src)
+        if g is None:
+            continue
+        to = ob.vertex_groups.get(dst) or ob.vertex_groups.new(name=dst)
+        for v in ob.data.vertices:
+            w = next((e.weight for e in v.groups if e.group == g.index), 0.0)
+            if w > 0:
+                have = next((e.weight for e in v.groups if e.group == to.index), 0.0)
+                to.add([v.index], have + w, 'REPLACE')
+        ob.vertex_groups.remove(g)
 
 
 def skin_weights(co, allow=None):
@@ -1389,9 +1444,10 @@ FIST_R = 0.073     # finger tubes' centre radius around the grip (pitchfork and 
 def fist(pc):
     """The right hand closed around the weapon grip: four finger rings, a palm out to the
     wrist and a thumb over the index finger. Built around the grip in the Idle_Weapon pose
-    and rigid to Weapon.R like the weapons themselves, so it holds the shaft in every clip."""
+    and rigid to the hand (Fist.R). Weapon.R keeps a fixed offset from it in the gameplay
+    clips, so the fist holds the grip there; the menu idle slides the pitchfork through it."""
     skin = MAT['Skin_Natural']
-    bm = pc.part('Weapon.R', bevel=0.0, hard=70)
+    bm = pc.part('Fist.R', bevel=0.0, hard=70)
     held = POSE['Weapon.R']
     grip = held @ WEAPON.translation
     u = (held.to_3x3() @ WEAPON.to_3x3() @ Vector((0, 0, 1))).normalized()      # toward the tines
@@ -1419,7 +1475,7 @@ def fist(pc):
     thumb = [wrist.lerp(grip, 0.35) + u * 0.07 + v * 0.03, around(0.1, -40, FIST_R + 0.012),
              around(0.095, -90, FIST_R + 0.02), around(0.088, -135, FIST_R + 0.016), around(0.08, -165, FIST_R + 0.008)]
     tube_auto(bm, thumb, [0.034, 0.032, 0.03, 0.026, 0.02], 6, skin)
-    back = held.inverted()
+    back = POSE['Fist.R'].inverted()
     bmesh.ops.transform(bm, matrix=back, verts=bm.verts[:])
 
 
@@ -1787,6 +1843,7 @@ def armored_body(arm):
     bmesh.ops.delete(bm, geom=kill, context='FACES')
     bmesh.update_edit_mesh(me)
     bpy.ops.object.mode_set(mode='OBJECT')
+    rehome_weights(ob)
     ob.parent = arm
     ob.modifiers.new('Armature', 'ARMATURE').object = arm
     return ob
@@ -1978,6 +2035,7 @@ def main():
         export(arm, [ob], ob.name + '.fbx')
     scene_col = bpy.context.scene.collection
     head = commoner_head(arm).build(arm, scene_col)
+    blink_key(head)
     export(arm, [head, hair().build(arm, scene_col)], 'Commoner_Head.fbx')
     body_ob = commoner_body().build(arm, scene_col)
     swing_arm(body_ob, 'L', 12)

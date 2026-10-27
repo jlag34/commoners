@@ -194,26 +194,10 @@ namespace SwarmPrototype
             var raw = stage.GetComponent<RawImage>();
             if (raw != null) { float aspect = 528f / 654f; raw.uvRect = new Rect((1 - aspect) / 2, 0, aspect, 1); }
 
-            // Gear test bar over the unit: drag the thumb through commoner, bronze, silver, gold.
-            var tierNames = new[] { "COMMONER", "BRONZE", "SILVER", "GOLD" };
-            var gearBar = Column(Fixed(root, "Gear test", 620, 116, 360, 74), "Column", 2, null, TextAnchor.UpperCenter, false);
-            Stretch(gearBar);
-            var gearTitle = HubTheme.Text(gearBar, "Title", "GEAR TEST · COMMONER", 11, HubTheme.Tertiary, HubTheme.Face.Wide, 0.18f, TextAlignmentOptions.Center, false);
-            var gearSlider = Range(gearBar, "Tier", 0, null, 36);
-            gearSlider.minValue = 0; gearSlider.maxValue = tierNames.Length - 1; gearSlider.wholeNumbers = true;
-            gearSlider.value = 0;
-            gearSlider.onValueChanged.AddListener(v =>
-            {
-                int tier = Mathf.RoundToInt(v);
-                gearTitle.text = "GEAR TEST · " + tierNames[tier];
-                Preview.SetTier(tier);
-            });
-            var ticks = Row(gearBar, "Ticks", 0, null, TextAnchor.MiddleCenter, false, false);
-            foreach (var name in tierNames)
-            {
-                var tick = HubTheme.Text(ticks, name, name, 9, HubTheme.Faint, HubTheme.Face.Wide, 0.12f, TextAlignmentOptions.Center, false);
-                Size(tick, flexWidth: 1);
-            }
+            // Gear test bars over the unit: weapon and armor tiers, each on its own slider.
+            int weaponTier = 0, armorTier = 0;
+            GearTest("Weapon test", 620, "WEAPON", new[] { "FORK", "BRONZE", "STEEL", "GOLD" }, t => { weaponTier = t; Preview.SetGear(weaponTier, armorTier); });
+            GearTest("Armor test", 810, "ARMOR", new[] { "NONE", "LEATHER", "IRON", "GOLD" }, t => { armorTier = t; Preview.SetGear(weaponTier, armorTier); });
 
             var caption = Column(Fixed(root, "Caption", 400, 744, 800, 90), "Column", 7, null, TextAnchor.UpperCenter, false);
             Stretch(caption);
@@ -222,6 +206,28 @@ namespace SwarmPrototype
             var hint = Row(caption, "Rotate hint", 8, Pad(6, 0, 0, 0), TextAnchor.MiddleCenter, false, false);
             Icon(hint, "Icon", "rotate", 16, HubTheme.Tertiary);
             HubTheme.Text(hint, "Label", "DRAG TO ROTATE", 11, HubTheme.Tertiary, HubTheme.Face.Wide, 0.18f, TextAlignmentOptions.MidlineLeft, false);
+        }
+
+        void GearTest(string name, float left, string label, string[] tierNames, Action<int> changed)
+        {
+            var bar = Column(Fixed(root, name, left, 116, 170, 74), "Column", 2, null, TextAnchor.UpperCenter, false);
+            Stretch(bar);
+            var title = HubTheme.Text(bar, "Title", label + " · " + tierNames[0], 11, HubTheme.Tertiary, HubTheme.Face.Wide, 0.18f, TextAlignmentOptions.Center, false);
+            var slider = Range(bar, "Tier", 0, null, 36);
+            slider.minValue = 0; slider.maxValue = tierNames.Length - 1; slider.wholeNumbers = true;
+            slider.value = 0;
+            slider.onValueChanged.AddListener(v =>
+            {
+                int tier = Mathf.RoundToInt(v);
+                title.text = label + " · " + tierNames[tier];
+                changed(tier);
+            });
+            var ticks = Row(bar, "Ticks", 0, null, TextAnchor.MiddleCenter, false, false);
+            foreach (var tierName in tierNames)
+            {
+                var tick = HubTheme.Text(ticks, tierName, tierName, 8, HubTheme.Faint, HubTheme.Face.Wide, 0.08f, TextAlignmentOptions.Center, false);
+                Size(tick, flexWidth: 1);
+            }
         }
 
         void BuildRightColumn()
