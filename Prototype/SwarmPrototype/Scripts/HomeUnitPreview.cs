@@ -13,6 +13,11 @@ namespace SwarmPrototype
         readonly List<(Light light, int mask)> sceneLights = new List<(Light, int)>();
         GameObject stage;
         Transform unit;
+        GameObject model;
+        UnitGear gear;
+        // Upgrade levels behind the gear test bar: commoner, bronze, silver, gold.
+        static readonly int[] TierLevels = { 0, 1, 6, 11 };
+        static readonly Color PreviewTeam = new Color(0.13f, 0.36f, 0.86f);
         Camera previewCamera;
         RenderTexture texture;
         float turn = 155, entrance;
@@ -54,12 +59,15 @@ namespace SwarmPrototype
             unit = new GameObject("Equipped unit").transform;
             unit.SetParent(stage.transform, false);
             unit.localPosition = new Vector3(0, 0.3f, 0);
-            var model = Visuals.SpawnModel("Warrior", unit);
+            model = Visuals.SpawnModel("Warrior", unit);
             if (model != null)
             {
                 Visuals.FitHeight(model, 2.75f);
                 var animator = UnitAnimator.Attach(model, Visuals.LoadClips("Warrior"), null, 0);
                 if (animator != null) model.GetComponent<Animator>().cullingMode = AnimatorCullingMode.AlwaysAnimate;
+                // Starts as the bare commoner (tier 0): pitchfork-era weapon, no armor.
+                gear = UnitGear.Attach(model, PreviewTeam);
+                SetTier(0);
             }
             else
             {
@@ -70,6 +78,15 @@ namespace SwarmPrototype
                 capsule.GetComponent<Renderer>().sharedMaterial = MakeMaterial(MenuUi.Gold);
             }
             foreach (var t in stage.GetComponentsInChildren<Transform>()) t.gameObject.layer = PreviewLayer;
+        }
+
+        // Dresses the preview in gear tier 0-3 (strength and armor together; size unchanged).
+        public void SetTier(int tier)
+        {
+            if (gear == null) return;
+            int level = TierLevels[Mathf.Clamp(tier, 0, TierLevels.Length - 1)];
+            gear.Apply(level, level, 0, 0);
+            foreach (var t in model.GetComponentsInChildren<Transform>(true)) t.gameObject.layer = PreviewLayer;
         }
 
         public void OnDrag(PointerEventData data) => turn -= data.delta.x * 0.45f;

@@ -194,6 +194,27 @@ namespace SwarmPrototype
             var raw = stage.GetComponent<RawImage>();
             if (raw != null) { float aspect = 528f / 654f; raw.uvRect = new Rect((1 - aspect) / 2, 0, aspect, 1); }
 
+            // Gear test bar over the unit: drag the thumb through commoner, bronze, silver, gold.
+            var tierNames = new[] { "COMMONER", "BRONZE", "SILVER", "GOLD" };
+            var gearBar = Column(Fixed(root, "Gear test", 620, 116, 360, 74), "Column", 2, null, TextAnchor.UpperCenter, false);
+            Stretch(gearBar);
+            var gearTitle = HubTheme.Text(gearBar, "Title", "GEAR TEST · COMMONER", 11, HubTheme.Tertiary, HubTheme.Face.Wide, 0.18f, TextAlignmentOptions.Center, false);
+            var gearSlider = Range(gearBar, "Tier", 0, null, 36);
+            gearSlider.minValue = 0; gearSlider.maxValue = tierNames.Length - 1; gearSlider.wholeNumbers = true;
+            gearSlider.value = 0;
+            gearSlider.onValueChanged.AddListener(v =>
+            {
+                int tier = Mathf.RoundToInt(v);
+                gearTitle.text = "GEAR TEST · " + tierNames[tier];
+                Preview.SetTier(tier);
+            });
+            var ticks = Row(gearBar, "Ticks", 0, null, TextAnchor.MiddleCenter, false, false);
+            foreach (var name in tierNames)
+            {
+                var tick = HubTheme.Text(ticks, name, name, 9, HubTheme.Faint, HubTheme.Face.Wide, 0.12f, TextAlignmentOptions.Center, false);
+                Size(tick, flexWidth: 1);
+            }
+
             var caption = Column(Fixed(root, "Caption", 400, 744, 800, 90), "Column", 7, null, TextAnchor.UpperCenter, false);
             Stretch(caption);
             HubTheme.Text(caption, "Unit name", "THE COMMONER", 22, HubTheme.Cream, HubTheme.Face.WideHeavy, 0.14f, TextAlignmentOptions.Center, false).margin = new Vector4(0.14f * 22, 0, 0, 0);
