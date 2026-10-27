@@ -6,23 +6,27 @@ namespace SwarmPrototype
     // Visible gear on a unit's model that tracks the team's upgrade levels, so a
     // swarm looks as strong as it is. Tiers by level: 0, 1-5, 6-10, 11+, after the
     // concept board's peon progression (basic -> armored -> champion).
-    //   Strength -> the weapon: a pickaxe at tier 0, then a bronze / steel / glowing gold sword.
-    //   Armor    -> tier 1 leather set; tier 2 iron plate, kettle helmet and a round
-    //               shield; tier 3 gilded, glowing, with a tall shield.
+    //   Strength -> the weapon: a pitchfork at tier 0, then a bronze / steel / gilded sword.
+    //   Armor    -> tier 1 leather set and a bronze-bound round shield; tier 2 iron plate,
+    //               kettle helmet and an iron round shield; tier 3 gilded with a tall shield.
     //   Health   -> the whole model grows 5% per tier.
     //   Speed    -> tier 2+ kicks up dust while running.
-    // Armor sets are skinned meshes built in Blender on the Warrior's own armature
-    // (art/blender/build_armor.py -> Resources/SwarmModels/Armor_*.fbx). Each piece is
-    // re-bound to this model's bones by name, so it follows the animations. If a set
-    // is missing the old primitive armor is built instead. Weapons are still primitives
-    // parented to the weapon bone.
+    // Armor, shields and weapons are skinned meshes built in Blender on the Warrior's own
+    // armature (art/blender/build_armor.py -> Resources/SwarmModels/*.fbx). Each piece is
+    // re-bound to this model's bones by name, so it follows the animations. If a set is
+    // missing the old primitive armor or tinted sword is used instead. The Warrior's hair
+    // is always swapped for a bare head, and under armor its body for one without the
+    // tunic skirt, which would otherwise hang out below the plates.
     public class UnitGear : MonoBehaviour
     {
         static readonly int[] TierStarts = { 1, 6, 11 };
         static readonly string[] ArmorSets = { null, "Armor_Leather", "Armor_Iron", "Armor_Gilded" };
-        static readonly string[] ShieldSets = { null, null, "Shield_Iron_Round", "Shield_Gilded_Tall" };
-        // Ears and nose without hair, shown under helmets in place of the Face mesh.
+        static readonly string[] ShieldSets = { null, "Shield_Bronze_Round", "Shield_Iron_Round", "Shield_Gilded_Tall" };
+        static readonly string[] WeaponSets = { "Weapon_Pitchfork", "Weapon_Sword_Bronze", "Weapon_Sword_Steel", "Weapon_Sword_Gilded" };
+        // The Face mesh without its hair (just the nose), shown in its place at every tier.
         const string BareHead = "Warrior_Head_Bare";
+        // Warrior_Body without the tunic skirt, shown in its place while armor is worn.
+        const string ArmoredBody = "Warrior_Body_Armored";
         const string ModelFolder = "SwarmModels/";
         static readonly Dictionary<(string, int, Color), Material> styledMaterials = new Dictionary<(string, int, Color), Material>();
 
@@ -37,9 +41,10 @@ namespace SwarmPrototype
         Renderer sword;
         Transform weaponBone, weaponEnd, head, headEnd, shoulderL, shoulderR, lowerArmL, fistL, torso, neck;
         readonly Dictionary<string, Transform> bones = new Dictionary<string, Transform>();
-        // Base-body parts that armor covers: the model's own shoulder pads, and the hair under a helmet.
+        // Base-body parts that gear replaces: the model's own shoulder pads, the hair, the skirted body.
         readonly List<Renderer> shoulderPads = new List<Renderer>();
-        Renderer hair;
+        Renderer hair, body;
+        readonly List<GameObject> baseParts = new List<GameObject>();
         Color team = new Color(0.1f, 0.33f, 0.85f);
         Vector3 weaponBoneScale = Vector3.one;
         Vector3 swordScale = Vector3.one;
@@ -88,7 +93,9 @@ namespace SwarmPrototype
                 if (gear.sword == null && r.name.ToLowerInvariant().Contains("sword")) gear.sword = r;
                 else if (r.name.StartsWith("ShoulderPad")) gear.shoulderPads.Add(r);
                 else if (r.name == "Face") gear.hair = r;
+                else if (r.name == "Warrior_Body") gear.body = r;
             }
+            if (gear.hair != null && gear.Dress(BareHead, 0, gear.baseParts, gear.hair.sharedMaterials)) gear.hair.enabled = false;
             if (gear.sword != null)
             {
                 gear.swordScale = gear.sword.transform.localScale;
@@ -120,16 +127,22 @@ namespace SwarmPrototype
             Fx.Dust(here, transform.parent != null ? transform.parent.parent : null);
         }
 
-        // Tier 0 swaps the sword for a pickaxe: a basic peon fresh off the farm.
+        // Tier 0 swaps the sword for a pitchfork: a commoner fresh off the farm.
         void ApplySword(int tier)
         {
             strengthTier = tier;
             foreach (var piece in weaponPieces) Destroy(piece);
             weaponPieces.Clear();
+            if (weaponBone != null) weaponBone.localScale = weaponBoneScale;
+            if (Dress(WeaponSets[tier], tier, weaponPieces))
+            {
+                if (sword != null) sword.enabled = false;
+                return;
+            }
             if (sword != null) sword.enabled = tier > 0;
             if (tier == 0)
             {
-                BuildPickaxe();
+                BuildPitchfork();
                 return;
             }
             if (swordMaterial != null)
@@ -148,21 +161,21 @@ namespace SwarmPrototype
             else if (weaponBone != null) weaponBone.localScale = weaponBoneScale * SwordScale[tier];
         }
 
-        void BuildPickaxe()
+        // Primitive stand-in for when Weapon_Pitchfork.fbx is missing.
+        void BuildPitchfork()
         {
             if (weaponBone == null) return;
-            if (weaponBone.localScale != weaponBoneScale) weaponBone.localScale = weaponBoneScale;
             var wood = Visuals.Plain(WoodColor);
             var iron = Visuals.Plain(IronColor);
             var frame = WeaponFrame.From(sword, weaponBone);
             if (frame != null)
             {
                 // Built in the sword's own space, so it sits in the hand exactly like the sword
-                // did. The warrior idles blade-down, so the pick runs the other way: handle
-                // through the fist, head up behind the shoulder, like a peon carrying it.
-                weaponPieces.Add(frame.Bar(-0.25f, 0f, 0.8f, 0.06f, wood));
-                weaponPieces.Add(frame.Bar(-0.55f, 0f, 0.1f, 0.09f, iron, acrossLength: 0.42f));
-                weaponPieces.Add(frame.Bar(-0.55f, 0.3f, 0.07f, 0.07f, iron, acrossLength: 0.12f));
+                // did. The warrior idles blade-up, so the tines go on the blade side.
+                weaponPieces.Add(frame.Bar(0.25f, 0f, 1.1f, 0.05f, wood));
+                weaponPieces.Add(frame.Bar(0.8f, 0f, 0.05f, 0.05f, iron, acrossLength: 0.3f));
+                foreach (float across in new[] { -0.13f, 0f, 0.13f })
+                    weaponPieces.Add(frame.Bar(0.95f, across, 0.3f, 0.035f, iron));
                 return;
             }
             // No sword mesh to borrow a frame from: a plain stick in the hand.
@@ -175,21 +188,22 @@ namespace SwarmPrototype
             foreach (var piece in armorPieces) Destroy(piece);
             armorPieces.Clear();
             foreach (var pad in shoulderPads) pad.enabled = tier == 0;
-            if (hair != null) hair.enabled = true;
+            if (body != null) body.enabled = true;
             if (tier == 0) return;
-            if (!Dress(ArmorSets[tier], tier))
+            if (!Dress(ArmorSets[tier], tier, armorPieces))
             {
                 BuildPrimitiveArmor(tier);
                 return;
             }
-            if (ShieldSets[tier] != null) Dress(ShieldSets[tier], tier);
-            // Helmets hide the hair but keep ears and nose, textured like the face they replace.
-            if (tier >= 2 && hair != null && Dress(BareHead, tier, hair.sharedMaterials)) hair.enabled = false;
+            if (ShieldSets[tier] != null) Dress(ShieldSets[tier], tier, armorPieces);
+            // Same texture and team tint as the body it replaces.
+            if (body != null && Dress(ArmoredBody, tier, armorPieces, body.sharedMaterials)) body.enabled = false;
         }
 
         // Adds every skinned mesh in Resources/SwarmModels/<setName> to this model, bound to
-        // its bones of the same names. Returns false if the set is missing or fits no bone.
-        bool Dress(string setName, int tier, Material[] materials = null)
+        // its bones of the same names, and lists the new objects in `into`. Returns false if
+        // the set is missing or fits no bone.
+        bool Dress(string setName, int tier, List<GameObject> into, Material[] materials = null)
         {
             var prefab = Resources.Load<GameObject>(ModelFolder + setName);
             if (prefab == null) return false;
@@ -215,7 +229,7 @@ namespace SwarmPrototype
                 r.localBounds = source.localBounds;
                 r.sharedMaterials = materials ?? Styled(source.sharedMaterials, tier);
                 r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On;
-                armorPieces.Add(piece);
+                into.Add(piece);
                 any = true;
             }
             return any;
@@ -253,6 +267,8 @@ namespace SwarmPrototype
                 case "Metal_Iron": color = new Color(0.8f, 0.82f, 0.86f); metallic = 0.3f; gloss = 0.55f; break;
                 case "Metal_Dark": color = new Color(0.46f, 0.48f, 0.53f); metallic = 0.3f; gloss = 0.45f; break;
                 case "Metal_Gold": color = new Color(1f, 0.74f, 0.18f); metallic = 0.35f; gloss = 0.6f; glow = color * ArmorGlow[Mathf.Clamp(tier, 0, 3)]; break;
+                case "Metal_Steel": color = new Color(0.84f, 0.86f, 0.9f); metallic = 0.35f; gloss = 0.65f; break;
+                case "Metal_Bronze": color = new Color(0.66f, 0.37f, 0.22f); metallic = 0.3f; gloss = 0.5f; break;
                 case "Team_Blue": color = team; gloss = 0.3f; break;
                 default: return null;
             }

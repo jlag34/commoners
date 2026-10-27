@@ -1,17 +1,27 @@
-"""Builds the Commoner armor sets (leather / iron / gilded) and the two shields
-as skinned meshes on the Warrior.fbx armature, then exports one FBX per set into
-Resources/SwarmModels and saves armor_sets.blend next to this script.
+"""Builds the Commoner's gear as skinned meshes on the Warrior.fbx armature, exports
+one FBX per item into Resources/SwarmModels and saves armor_sets.blend next to this script.
+
+  Armor_Leather/Iron/Gilded.fbx          armor sets, one mesh per piece
+  Shield_Bronze_Round, Shield_Iron_Round, Shield_Gilded_Tall    rigid on the left forearm
+  Weapon_Pitchfork, Weapon_Sword_Bronze/Steel/Gilded            rigid on Weapon.R
+  Warrior_Head_Bare.fbx                  the Face mesh without its hair (nose only)
+  Warrior_Body_Armored.fbx               the body without its tunic skirt, worn under armor
 
 Run headless:
   /Applications/Blender.app/Contents/MacOS/Blender -b --python art/blender/build_armor.py [-- --no-render]
 
 Units: Blender units as in Warrior.fbx (body 2.85 tall; the game scales it to
-2.1 m). Z up, character front -Y, wearer's left +X. Every piece is built around
-the bone it is weighted to, so Unity can remap the skinned bones by name onto a
-live Warrior instance (see UnitGear.cs).
+2.1 m). Z up, character front -Y, wearer's left +X. Every piece is built in the
+rest (T) pose around the bone it is weighted to, so Unity can remap the skinned
+bones by name onto a live Warrior instance (see UnitGear.cs). Shields are placed
+for the Idle_Weapon pose and mapped back to rest, so they face forward in game;
+previews are rendered in that pose. Lathe profiles P(t, rx, ry) put rx on the
+frame's local x (usually FRONT) and ry on local y (usually sideways).
 """
 import bpy, bmesh, math, os, sys
 from mathutils import Vector, Matrix
+from mathutils.bvhtree import BVHTree
+from mathutils.geometry import intersect_point_line
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 GAME = os.path.abspath(os.path.join(HERE, "..", ".."))
@@ -37,6 +47,8 @@ MATERIALS = [
     ("Metal_Dark", (0.46, 0.48, 0.53, 1)),
     ("Team_Blue", (0.13, 0.36, 0.86, 1)),
     ("Wood_Brown", (0.64, 0.41, 0.20, 1)),
+    ("Metal_Steel", (0.84, 0.86, 0.90, 1)),
+    ("Metal_Bronze", (0.66, 0.37, 0.22, 1)),
 ]
 MAT = {name: i for i, (name, _) in enumerate(MATERIALS)}
 
@@ -172,6 +184,93 @@ def scale_pts(pts, s):
     return [(x * s, y * s) for x, y in pts]
 
 
+def loft(bm, M, section, stations, mat, cap_first=True):
+    """Polygon `section` (local xy) scaled per station (z, sx, sy) along M's local z.
+    A station with zero scale closes the loft in a point."""
+    rings = []
+    for z, sx, sy in stations:
+        if sx <= 1e-6 and sy <= 1e-6:
+            rings.append([bm.verts.new(M @ Vector((0, 0, z)))])
+        else:
+            rings.append([bm.verts.new(M @ Vector((x * sx, y * sy, z))) for x, y in section])
+    faces = []
+    n = len(section)
+    for r0, r1 in zip(rings, rings[1:]):
+        for i in range(n):
+            j = (i + 1) % n
+            if len(r1) == 1:
+                faces.append(bm.faces.new((r0[i], r0[j], r1[0])))
+            elif len(r0) == 1:
+                faces.append(bm.faces.new((r0[0], r1[j], r1[i])))
+            else:
+                faces.append(bm.faces.new((r0[i], r0[j], r1[j], r1[i])))
+    if cap_first and len(rings[0]) > 2:
+        faces.append(bm.faces.new(list(reversed(rings[0]))))
+    if len(rings[-1]) > 2:
+        faces.append(bm.faces.new(rings[-1]))
+    for f in faces:
+        f.material_index = mat
+    return faces
+
+
+def tube(bm, pts, radii, seg, mat, side):
+    """Circles of `radii` swept through world points `pts`. `side` is a fixed world
+    direction perpendicular to the whole path (the path is planar), so rings never twist.
+    Zero radius at either end closes it in a point; otherwise the end is capped."""
+    rings = []
+    n = len(pts)
+    for i, (p, r) in enumerate(zip(pts, radii)):
+        d = (Vector(pts[min(i + 1, n - 1)]) - Vector(pts[max(i - 1, 0)])).normalized()
+        F = frame(p, d, side)
+        if r <= 1e-6:
+            rings.append([bm.verts.new(F @ Vector((0, 0, 0)))])
+        else:
+            rings.append([bm.verts.new(F @ Vector((r * math.cos(D(a * 360 / seg)), r * math.sin(D(a * 360 / seg)), 0))) for a in range(seg)])
+    faces = []
+    for r0, r1 in zip(rings, rings[1:]):
+        for i in range(seg):
+            j = (i + 1) % seg
+            if len(r1) == 1:
+                faces.append(bm.faces.new((r0[i], r0[j], r1[0])))
+            elif len(r0) == 1:
+                faces.append(bm.faces.new((r0[0], r1[j], r1[i])))
+            else:
+                faces.append(bm.faces.new((r0[i], r0[j], r1[j], r1[i])))
+    if len(rings[0]) > 2:
+        faces.append(bm.faces.new(list(reversed(rings[0]))))
+    if len(rings[-1]) > 2:
+        faces.append(bm.faces.new(rings[-1]))
+    for f in faces:
+        f.material_index = mat
+    return faces
+
+
+def ridge(bm, path, side, half_width, height, mat, centre):
+    """A raised strip of rectangular section laid along `path` (world points on a
+    surface). Its top faces away from `centre`; `side` is the strip's width direction."""
+    side = Vector(side).normalized()
+    n = len(path)
+    rings = []
+    for i, p in enumerate(path):
+        p = Vector(p)
+        d = Vector(path[min(i + 1, n - 1)]) - Vector(path[max(i - 1, 0)])
+        up = d.cross(side).normalized()
+        if up.dot(p - Vector(centre)) < 0:
+            up = -up
+        rings.append([bm.verts.new(p + side * sw - up * 0.01 + up * h) for sw, h in
+                      ((-half_width, 0), (half_width, 0), (half_width, height), (-half_width, height))])
+    faces = []
+    for r0, r1 in zip(rings, rings[1:]):
+        for i in range(4):
+            j = (i + 1) % 4
+            faces.append(bm.faces.new((r0[i], r0[j], r1[j], r1[i])))
+    faces.append(bm.faces.new(list(reversed(rings[0]))))
+    faces.append(bm.faces.new(rings[-1]))
+    for f in faces:
+        f.material_index = mat
+    return faces
+
+
 # ---------------------------------------------------------------- pieces
 
 class Piece:
@@ -181,18 +280,19 @@ class Piece:
         self.name = name
         self.parts = []
 
-    def part(self, bone, bevel=0.012):
+    def part(self, bone, bevel=0.012, hard=62):
+        """A rigid part on `bone`. Edges sharper than `hard` degrees shade flat."""
         bm = bmesh.new()
-        self.parts.append((bm, bone, bevel))
+        self.parts.append((bm, bone, bevel, hard))
         return bm
 
     def mirrored(self, name):
         q = Piece(name)
-        for bm, bone, bevel in self.parts:
+        for bm, bone, bevel, hard in self.parts:
             bm2 = bm.copy()
             bmesh.ops.scale(bm2, vec=(-1, 1, 1), verts=bm2.verts[:])
             bmesh.ops.reverse_faces(bm2, faces=bm2.faces[:])
-            q.parts.append((bm2, swap_side(bone), bevel))
+            q.parts.append((bm2, swap_side(bone), bevel, hard))
         return q
 
     def build(self, armature, collection):
@@ -202,15 +302,16 @@ class Piece:
         final = bmesh.new()
         layer = final.verts.layers.int.new('bone')
         bones = []
-        for bm, bone, bevel in self.parts:
+        for bm, bone, bevel, hard in self.parts:
             bmesh.ops.remove_doubles(bm, verts=bm.verts[:], dist=1e-5)
             bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
             if bevel > 0:
                 sharp = [e for e in bm.edges if e.is_manifold and e.calc_length() > 0.03 and e.calc_face_angle(0) > D(50)]
                 if sharp:
-                    bmesh.ops.bevel(bm, geom=sharp, offset=bevel, segments=2, affect='EDGES', clamp_overlap=True, loop_slide=True)
+                    made = bmesh.ops.bevel(bm, geom=sharp, offset=bevel, segments=2, affect='EDGES', clamp_overlap=True, loop_slide=True)
+                    inherit_material(made['faces'])
             bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
-            sharp = [e for e in bm.edges if e.is_manifold and e.calc_face_angle(0) > D(62)]
+            sharp = [e for e in bm.edges if e.is_manifold and e.calc_face_angle(0) > D(hard)]
             if sharp:
                 bmesh.ops.split_edges(bm, edges=sharp)
             for f in bm.faces:
@@ -247,6 +348,23 @@ class Piece:
         ob.parent = armature
         ob.modifiers.new('Armature', 'ARMATURE').object = armature
         return ob
+
+
+def inherit_material(faces):
+    """Bevel faces come out with material 0; give each the material of a face it borders."""
+    todo = set(faces)
+    while todo:
+        done = []
+        for f in todo:
+            for e in f.edges:
+                o = next((g for g in e.link_faces if g is not f and g not in todo), None)
+                if o is not None:
+                    f.material_index = o.material_index
+                    done.append(f)
+                    break
+        if not done:
+            break
+        todo.difference_update(done)
 
 
 def swap_side(bone):
@@ -318,25 +436,30 @@ def waist(s):
     bm = pc.part('Hips')
     M = frame((0, 0.03, 0))
     leather = s.tier == 'leather'
-    lathe(bm, shell([P(1.30, 0.345, 0.315), P(1.42, 0.345, 0.315)], 0.03), M, 16, s.shell_mat, closed=True, offset=11.25)
+    # The top tucks up inside the chest's hem so no gap opens when the idle leans forward.
+    lathe(bm, shell([P(1.30, 0.375, 0.325), P(1.42, 0.375, 0.325), P(1.47, 0.32, 0.288)], 0.03), M, 16, s.shell_mat, closed=True, offset=11.25)
     if leather:
-        box(bm, frame((0, -0.335, 1.36), FRONT, LEFT), (0.1, 0.08, 0.03), MAT['Metal_Dark'])
+        box(bm, frame((0, -0.365, 1.36), FRONT, LEFT), (0.1, 0.08, 0.03), MAT['Metal_Dark'])
     else:
         for ang in (30, -30):
-            rivet(bm, frame(ring_point(M, 0.345, 0.315, 1.36, ang), ring_normal(M, ang)), mat=s.rivet)
-    # Tassets hang from the belt as curved cone segments; the body's own skirt shows between them.
-    top = P(1.33, 0.36, 0.33)
+            rivet(bm, frame(ring_point(M, 0.375, 0.325, 1.36, ang), ring_normal(M, ang)), mat=s.rivet)
+    # Padded underskirt: Warrior_Body_Armored has no skirt, so this is what shows
+    # between the tassets.
+    pad = MAT['Leather_Dark'] if leather else MAT['Leather_Brown']
+    lathe(bm, shell([P(1.34, 0.37, 0.32), P(1.20, 0.41, 0.355), P(1.03, 0.44, 0.39)], 0.025), M, 16, pad, closed=True, offset=11.25)
+    # Tassets hang from the belt as curved cone segments over it.
+    top = P(1.33, 0.39, 0.34)
     if leather:
-        front = [top, P(1.02, 0.45, 0.42)]
+        front = [top, P(1.02, 0.47, 0.43)]
         lathe(bm, shell(front, 0.025), M, 3, s.shell_mat, arc=(-24, 24), closed=True, caps=True)
     else:
-        front = [P(1.33, 0.36, 0.33, -27, 27), P(1.10, 0.43, 0.40, -25, 25), P(0.93, 0.50, 0.47, -4, 4)]
+        front = [P(1.33, 0.39, 0.34, -27, 27), P(1.10, 0.455, 0.41, -25, 25), P(0.93, 0.52, 0.48, -4, 4)]
         lathe(bm, shell(front, 0.025), M, 4, s.shell_mat, arc=(-27, 27), closed=True, caps=True)
     for a0, a1 in ((44, 84), (-84, -44), (156, 204)):
-        lathe(bm, shell([top, P(1.06, 0.45, 0.42)], 0.025), M, 3, s.shell_mat, arc=(a0, a1), closed=True, caps=True)
+        lathe(bm, shell([top, P(1.06, 0.47, 0.43)], 0.025), M, 3, s.shell_mat, arc=(a0, a1), closed=True, caps=True)
         mid = (a0 + a1) / 2
-        rivet(bm, frame(ring_point(M, 0.372, 0.342, 1.29, mid), ring_normal(M, mid)), mat=s.rivet)
-    rivet(bm, frame(ring_point(M, 0.372, 0.342, 1.29, 0), ring_normal(M, 0)), mat=s.rivet)
+        rivet(bm, frame(ring_point(M, 0.402, 0.352, 1.29, mid), ring_normal(M, mid)), mat=s.rivet)
+    rivet(bm, frame(ring_point(M, 0.402, 0.352, 1.29, 0), ring_normal(M, 0)), mat=s.rivet)
     return pc
 
 
@@ -345,7 +468,7 @@ def hip_cloth(s):
     bm = pc.part('Hips')
     M = frame((0, 0.03, 0))
     ang = 104
-    origin = ring_point(M, 0.36, 0.33, 1.31, ang)
+    origin = ring_point(M, 0.39, 0.345, 1.31, ang)
     normal = ring_normal(M, ang)
     F = frame(origin, normal, DOWN) @ Matrix.Rotation(D(-10), 4, 'Y')
     cloth = [(0, -0.10), (0, 0.10), (0.32, 0.12), (0.32, -0.12)]
@@ -440,33 +563,69 @@ def glove(s):
 
 # --- head
 
+# The skull (Warrior_Body, Head bone) spans x +-0.286, y -0.318..0.442 and tops out at
+# z 2.888: longer front to back than it is wide. The dome is a superellipse sized to
+# clear it by >= 0.035 everywhere above the brow line.
+HELM_O = Vector((0, 0.06, 2.50))
+HELM_FRONT, HELM_SIDE, HELM_H, HELM_N = 0.45, 0.355, 0.47, 2.4
+HELM_T = (0.0, 0.2, 0.4, 0.55, 0.7, 0.82, 0.92, 1.0)
+
+
+def dome_k(f):
+    """Superellipse radius factor at height fraction f of the dome."""
+    return max(0.0, 1 - f ** HELM_N) ** (1 / HELM_N)
+
+
+def dome_point(f, angle, lift=0.0):
+    """Point on the dome at height fraction f; angle 0 = front, 90 = wearer's left."""
+    k = dome_k(f)
+    a = D(angle)
+    return HELM_O + Vector((math.sin(a) * (HELM_SIDE * k + lift), -math.cos(a) * (HELM_FRONT * k + lift), f * HELM_H + lift * (1 - k)))
+
+
+def helmet_ridge(bm, angle, half_width, height, mat, f0=0.06):
+    """A strip over the crown in the vertical plane at `angle`, rim to rim."""
+    # Same heights as the dome's rings, so the strip lies on the lathe's vertex columns.
+    fs = [f0] + [f for f in HELM_T if f0 < f < 1]
+    path = [dome_point(f, angle) for f in fs] + [dome_point(1, angle)] + [dome_point(f, angle + 180) for f in reversed(fs)]
+    a = D(angle)
+    side = Vector((math.cos(a), math.sin(a), 0))
+    return ridge(bm, path, side, half_width, height, mat, HELM_O + Vector((0, 0, HELM_H * 0.2)))
+
+
 def helmet(s):
     pc = Piece(s.name('Helmet'))
     bm = pc.part('Head')
-    M = frame((0, 0.06, 2.50))      # brow line; skull is x +-0.29, y -0.32..0.44, top 2.89
-    dome = [P(0, 0.36, 0.43), P(0.12, 0.35, 0.42), P(0.24, 0.31, 0.37), P(0.35, 0.23, 0.27), P(0.42, 0.12, 0.14), P(0.46, 0)]
-    lathe(bm, dome, M, 12, s.metal, cap_first=True, offset=15)
+    M = frame(HELM_O)      # brow line; local x front, y wearer's left
+    dome = [P(f * HELM_H, HELM_FRONT * dome_k(f), HELM_SIDE * dome_k(f)) for f in HELM_T]
+    lathe(bm, dome, M, 16, s.metal)
+    F, S = HELM_FRONT, HELM_SIDE
     if s.tier == 'iron':
-        # Kettle hat: flat brim, a ridge over the crown, leather tabs hanging at the ears.
-        lathe(bm, [P(0.0, 0.35, 0.42), P(-0.02, 0.52, 0.59), P(-0.05, 0.52, 0.59), P(-0.035, 0.35, 0.42)], M, 12, s.metal, closed=True, offset=15)
-        box(bm, frame((0, 0.06, 2.945), UP, FRONT), (0.50, 0.05, 0.06), s.metal)
+        # Kettle hat: wide flat brim, crossed ridges over the crown, leather tabs at the ears.
+        lathe(bm, [P(0.0, F, S), P(-0.035, F + 0.16, S + 0.16), P(-0.065, F + 0.16, S + 0.16), P(-0.045, F - 0.01, S - 0.01)],
+              M, 16, s.metal, closed=True)
+        helmet_ridge(bm, 0, 0.035, 0.035, s.metal)
+        helmet_ridge(bm, 90, 0.022, 0.022, s.metal, f0=0.3)
         for ang in (0, 90, 180, 270):
-            rivet(bm, frame(ring_point(M, 0.365, 0.435, 0.05, ang), ring_normal(M, ang)), mat=s.rivet)
-        for sx in (-0.335, 0.335):
-            box(bm, frame((sx, 0.12, 2.36), UP, FRONT), (0.14, 0.03, 0.22), MAT['Leather_Brown'])
+            p = dome_point(0.08, ang)
+            rivet(bm, frame(p, (p - HELM_O - Vector((0, 0, 0.03))).normalized()), mat=s.rivet)
+        for sx in (-1, 1):
+            box(bm, frame((sx * (S - 0.015), 0.10, 2.38), UP, FRONT), (0.13, 0.03, 0.22), MAT['Leather_Brown'])
     else:
-        # Closed helm: brow band, side-and-back skirt flaring at the neck, cheekguards, crest, diamond brow.
-        band(bm, M, -0.03, 0.04, 0.375, 0.445, 0.025, 12, s.metal, offset=15)
-        skirt = [P(0.0, 0.36, 0.43), P(-0.12, 0.36, 0.43), P(-0.24, 0.38, 0.47, cx=-0.03)]
-        lathe(bm, shell(skirt, 0.03), M, 8, s.metal, arc=(62, 298), closed=True, caps=True)
-        for ang in (54, -54):
-            p = ring_point(M, 0.36, 0.43, -0.08, ang)
-            F = frame(p, ring_normal(M, ang), DOWN)
-            plate(bm, [(-0.06, -0.08), (-0.06, 0.08), (0.24, 0.07), (0.24, -0.05)], 0.03, F, s.metal, z0=-0.005)
-        box(bm, frame((0, 0.06, 2.95), UP, FRONT), (0.50, 0.06, 0.07), s.metal)
-        box(bm, frame((0, 0.06, 2.985), UP, FRONT), (0.42, 0.026, 0.03), MAT['Team_Blue'])
-        diamond = [(0, 0.11), (0.08, 0), (0, -0.11), (-0.08, 0)]
-        plate(bm, diamond, 0.04, frame((0, -0.365, 2.60), FRONT, LEFT), s.metal)
+        # Closed helm: brow band, side-and-back skirt flaring at the neck, cheekguards,
+        # a crest with a blue inset from brow to nape, diamond on the brow.
+        band(bm, M, -0.03, 0.05, F + 0.02, S + 0.02, 0.03, 16, s.metal)
+        skirt = [P(0.0, F, S), P(-0.12, F, S), P(-0.25, F + 0.05, S + 0.05, cx=0.03)]
+        lathe(bm, shell(skirt, 0.03), M, 10, s.metal, arc=(62, 298), closed=True, caps=True)
+        for ang in (56, -56):
+            p = ring_point(M, F, S, -0.06, ang)
+            Fm = frame(p, ring_normal(M, ang), DOWN) @ Matrix.Rotation(D(12), 4, 'Y')
+            plate(bm, [(-0.06, -0.085), (-0.06, 0.085), (0.25, 0.07), (0.25, -0.045)], 0.03, Fm, s.metal, z0=-0.01)
+        helmet_ridge(bm, 0, 0.045, 0.045, s.metal, f0=0.12)
+        helmet_ridge(bm, 0, 0.018, 0.058, MAT['Team_Blue'], f0=0.14)
+        diamond = [(0, 0.11), (0.085, 0), (0, -0.11), (-0.085, 0)]
+        lathe(bm, [P(0, 0.11, 0.085), P(0.035, 0.09, 0.07), P(0.06, 0)], frame(HELM_O + Vector((0, -F - 0.02, 0.07)), FRONT, UP), 4, s.metal,
+              cap_first=True, offset=0)
     return pc
 
 
@@ -518,6 +677,28 @@ def bare_head(arm):
 
 # --- legs
 
+def thigh(s):
+    """Cuisse around the thigh. Armored tiers wear Warrior_Body_Armored, whose skirt is
+    gone, so the plate is the thigh's visible surface between the tassets and the knee."""
+    leather = s.tier == 'leather'
+    pc = Piece(s.name('Thigh_L'))
+    bm = pc.part('UpperLeg.L')
+    M = bone_frame('UpperLeg.L')      # z down the thigh, x front, y toward the other leg
+    # Centre shifted outward so the two thighs clear each other at the crotch.
+    prof = [P(0.03, 0.225, 0.2, cy=-0.025), P(0.14, 0.235, 0.21, cy=-0.025), P(0.34, 0.225, 0.2, cy=-0.02), P(0.47, 0.205, 0.185, cy=-0.015)]
+    lathe(bm, shell(prof, 0.025), M, 14 if leather else 12, s.shell_mat, closed=True)
+    if leather:
+        for t in (0.12, 0.36):
+            band(bm, M, t, t + 0.045, 0.245, 0.22, 0.02, 14, MAT['Leather_Dark'])
+            rivet(bm, frame(ring_point(M, 0.245, 0.22, t + 0.022, 0), ring_normal(M, 0)), r=0.02, mat=s.rivet)
+    else:
+        band(bm, M, 0.02, 0.07, 0.24, 0.215, 0.025, 12, s.metal)
+        box(bm, frame(M @ Vector((0.235, 0, 0.26)), M.to_3x3() @ Vector((1, 0, 0)), M.to_3x3() @ Vector((0, 0, 1))), (0.30, 0.035, 0.03), s.metal)
+        for t in (0.16, 0.38):
+            rivet(bm, frame(ring_point(M, 0.233, 0.208, t, -90) + M.to_3x3() @ Vector((0, -0.02, 0)), ring_normal(M, -90)), r=0.02, mat=s.rivet)
+    return pc
+
+
 def knee(s):
     pc = Piece(s.name('Knee_L'))
     bm = pc.part('LowerLeg.L')
@@ -525,7 +706,8 @@ def knee(s):
     M = frame(head + Vector((0.01, -0.125, 0.01)), FRONT, UP)
     seg = 10 if s.tier == 'leather' else 8
     lathe(bm, [P(0, 0.145, 0.155), P(0.05, 0.135, 0.145), P(0.09, 0.085, 0.09), P(0.115, 0)], M, seg, s.shell_mat, cap_first=True, offset=30)
-    band(bm, bone_frame('LowerLeg.L'), -0.025, 0.025, 0.165, 0.165, 0.02, 12, s.trim)
+    # Padding around the joint fills the gap between thigh plate and shin at the back.
+    band(bm, bone_frame('LowerLeg.L'), -0.10, 0.06, 0.168, 0.168, 0.025, 12, s.trim)
     return pc
 
 
@@ -537,6 +719,9 @@ def shin(s):
     seg = 10 if leather else 8
     prof = [P(0.08, 0.165, 0.165, cx=0.01), P(0.20, 0.16, 0.16, cx=0.01), P(0.33, 0.165, 0.165, cx=0.01), P(0.37, 0.19, 0.19, cx=0.01)]
     lathe(bm, shell(prof, 0.03), M, seg, s.shell_mat, arc=(-105, 105), closed=True, caps=True)
+    # Leather backing closes the open back of the shell over the calf.
+    back = [P(0.07, 0.15, 0.15, cx=0.01), P(0.36, 0.15, 0.15, cx=0.01)]
+    lathe(bm, shell(back, 0.02), M, 6, s.trim, arc=(100, 260), closed=True, caps=True)
     if leather:
         for t in (0.13, 0.28):
             band(bm, M, t, t + 0.045, 0.175, 0.175, 0.018, 10, MAT['Leather_Dark'])
@@ -574,28 +759,46 @@ def boot(s):
 
 # --- shields
 
-def shield_round():
-    pc = Piece('Shield_Iron_Round')
+POSE = {}      # bone -> world matrix taking rest positions to the Idle_Weapon pose
+
+
+def shield_frame(lift=0.6, offset=0.26, out=28):
+    """Local z faces out of the shield, local x is its top. Designed in the idle pose:
+    upright in front of the left forearm, facing front and turned `out` degrees
+    outward, clear of the gauntlet; then mapped back to rest so the skinned mesh lands
+    there. Following the forearm's own tilt instead leans the top into the shoulder."""
+    pose = POSE['LowerArm.L']
+    head, tail = BONES['LowerArm.L']
+    n = Vector((math.sin(D(out)), -math.cos(D(out)), 0))
+    return pose.inverted() @ frame((pose @ head).lerp(pose @ tail, lift) + n * offset, n, UP)
+
+
+def shield_straps(bm, M, depth):
+    """Two straps across the back reaching in to the forearm."""
+    for x in (-0.1, 0.1):
+        box(bm, M @ Matrix.Translation((x, 0, depth - 0.05)), (0.06, 0.30, 0.15), MAT['Leather_Brown'])
+
+
+def shield_round(name, r, rim, boss):
+    pc = Piece(name)
     bm = pc.part('LowerArm.L')
-    M = frame((0.94, -0.13, 1.86), FRONT, UP)   # local z faces forward, x up
-    r = 0.40
+    M = shield_frame()
     lathe(bm, [P(0, r), P(0.04, r)], M, 16, MAT['Wood_Brown'], cap_first=True, cap_last=True)
     plate(bm, rect(2 * r * 0.95, 0.15), 0.012, M, MAT['Team_Blue'], z0=0.04)
-    lathe(bm, shell([P(0.0, r + 0.03), P(0.075, r + 0.03)], 0.065), M, 16, MAT['Metal_Iron'], closed=True)
-    lathe(bm, [P(0.05, 0.13), P(0.10, 0.115), P(0.145, 0.065), P(0.165, 0)], M, 10, MAT['Metal_Iron'], cap_first=True)
+    lathe(bm, shell([P(0.0, r + 0.03), P(0.075, r + 0.03)], 0.065), M, 16, MAT[rim], closed=True)
+    lathe(bm, [P(0.05, 0.13), P(0.10, 0.115), P(0.145, 0.065), P(0.165, 0)], M, 10, MAT[boss], cap_first=True)
+    rivet_mat = MAT['Metal_Dark'] if rim == 'Metal_Iron' else MAT[rim]
     for i in range(8):
         a = D(i * 45 + 22.5)
-        rivet(bm, M @ Matrix.Translation((math.cos(a) * (r - 0.002), math.sin(a) * (r - 0.002), 0.075)), r=0.022, h=0.022, mat=MAT['Metal_Dark'])
-    for y in (-0.09, 0.09):
-        box(bm, M @ Matrix.Translation((0, y, -0.04)), (0.30, 0.06, 0.07), MAT['Leather_Brown'])
-    pc.r = r
+        rivet(bm, M @ Matrix.Translation((math.cos(a) * (r - 0.002), math.sin(a) * (r - 0.002), 0.075)), r=0.022, h=0.022, mat=rivet_mat)
+    shield_straps(bm, M, -0.04)
     return pc
 
 
 def shield_tall():
     pc = Piece('Shield_Gilded_Tall')
     bm = pc.part('LowerArm.L')
-    M = frame((0.94, -0.13, 1.84), FRONT, UP)
+    M = shield_frame(lift=0.55, offset=0.27)
     outline = [(0.50, -0.36), (0.53, -0.18), (0.53, 0.18), (0.50, 0.36), (0.27, 0.36), (-0.05, 0.32), (-0.32, 0.22), (-0.50, 0.07),
                (-0.55, 0), (-0.50, -0.07), (-0.32, -0.22), (-0.05, -0.32), (0.27, -0.36)]
     plate(bm, scale_pts(outline, 0.92), 0.03, M, MAT['Wood_Brown'], z0=-0.025)
@@ -604,8 +807,95 @@ def shield_tall():
     lathe(bm, [P(0.085, 0.15, 0.10), P(0.16, 0)], M @ Matrix.Translation((0.02, 0, 0)), 4, MAT['Metal_Gold'], cap_first=True)
     for x, y in scale_pts(outline, 0.93):
         rivet(bm, M @ Matrix.Translation((x, y, 0.07)), r=0.02, h=0.02, mat=MAT['Metal_Gold'])
-    for y in (-0.09, 0.09):
-        box(bm, M @ Matrix.Translation((0, y, -0.05)), (0.30, 0.06, 0.07), MAT['Leather_Brown'])
+    shield_straps(bm, M, -0.05)
+    return pc
+
+
+# --- weapons
+
+WEAPON = Matrix()   # rest frame of the Warrior's sword: z grip -> tip, x across the guard, y off the flat
+
+
+def weapon_point(x, y, z):
+    return WEAPON @ Vector((x, y, z))
+
+
+SWORDS = {
+    # blade length / width, guard half-span, fittings, blade metal
+    'Bronze': dict(blade=1.02, width=0.17, guard=0.21, fit='Metal_Bronze', steel='Metal_Bronze'),
+    'Steel': dict(blade=1.10, width=0.18, guard=0.24, fit='Metal_Steel', steel='Metal_Steel'),
+    'Gilded': dict(blade=1.16, width=0.19, guard=0.28, fit='Metal_Gold', steel='Metal_Steel'),
+}
+
+
+def sword(kind):
+    """Weapon_Sword_<kind> after current/09_swords_bronze_corrected.png: faceted blade,
+    leather-wrapped grip through the fist, guard and pommel in the fitting metal."""
+    c = SWORDS[kind]
+    pc = Piece(f"Weapon_Sword_{kind}")
+    W = WEAPON
+    fit = MAT[c['fit']]
+    grip = pc.part('Weapon.R', bevel=0.0)
+    lathe(grip, [P(-0.2, 0.038), P(0.18, 0.042)], W, 8, MAT['Leather_Brown'], cap_first=True, cap_last=True, offset=22.5)
+    for t in (-0.14, -0.06, 0.02, 0.10):
+        band(grip, W @ Matrix.Rotation(D(14), 4, 'X'), t - 0.016, t + 0.016, 0.047, 0.047, 0.014, 8, MAT['Leather_Dark'], offset=22.5)
+
+    w, L, th = c['width'], c['blade'], 0.05
+    base = 0.235
+    blade = pc.part('Weapon.R', bevel=0.0, hard=25)
+    section = [(-w / 2, 0), (-w * 0.13, th / 2), (w * 0.13, th / 2), (w / 2, 0), (w * 0.13, -th / 2), (-w * 0.13, -th / 2)]
+    loft(blade, W, section, [(base, 0.86, 1), (base + 0.12, 1, 1), (base + L - 0.27, 1, 1), (base + L, 0, 0)], MAT[c['steel']])
+    if kind == 'Gilded':
+        inlay = [(-0.032, 0), (0, th / 2 + 0.008), (0.032, 0), (0, -th / 2 - 0.008)]
+        loft(blade, W, inlay, [(base, 1, 1), (base + L - 0.30, 1, 1), (base + L - 0.12, 0, 0)], fit)
+
+    guard = pc.part('Weapon.R', bevel=0.014, hard=40)
+    G = W @ Matrix.Translation((0, 0, 0.205))
+    g = c['guard']
+    box(guard, G, (2 * g - 0.08, 0.075, 0.065), fit)
+    for sx in (-1, 1):
+        # Flared, faceted ends angled up toward the blade.
+        end = G @ Matrix.Translation((sx * (g - 0.045), 0, 0.01)) @ Matrix.Rotation(D(-sx * 14), 4, 'Y')
+        box(guard, end, (0.09, 0.095, 0.10 if kind != 'Bronze' else 0.085), fit)
+    box(guard, G @ Matrix.Translation((0, 0, 0.0)), (0.13, 0.095, 0.09), fit)
+    if kind == 'Gilded':
+        for sy in (-1, 1):
+            Dm = frame(G @ Vector((0, sy * 0.045, 0.03)), W.to_3x3() @ Vector((0, sy, 0)), W.to_3x3() @ Vector((0, 0, 1)))
+            lathe(guard, [P(0, 0.085, 0.06), P(0.03, 0.06, 0.042), P(0.045, 0)], Dm, 4, fit, cap_first=True)
+
+    pommel = pc.part('Weapon.R', bevel=0.01, hard=30)
+    lathe(pommel, [P(-0.24, 0.03), P(-0.2, 0.034)], W, 8, fit, cap_first=True, cap_last=True)
+    Pm = frame(weapon_point(0, 0, -0.29), WEAPON.to_3x3() @ Vector((0, 1, 0)), WEAPON.to_3x3() @ Vector((0, 0, 1)))
+    if kind == 'Bronze':
+        lathe(pommel, [P(-0.04, 0.072), P(0.04, 0.072)], Pm, 16, fit, cap_first=True, cap_last=True)
+        for sy in (-1, 1):
+            lathe(pommel, [P(0.035, 0.05), P(0.052, 0.045), P(0.056, 0)], Pm @ Matrix.Rotation(D(90 - sy * 90), 4, 'X'), 16, fit, cap_first=True)
+    else:
+        lathe(pommel, [P(-0.045, 0.06), P(-0.03, 0.078), P(0.03, 0.078), P(0.045, 0.06)], Pm, 8, fit, cap_first=True, cap_last=True, offset=22.5)
+    return pc
+
+
+def pitchfork():
+    """Weapon_Pitchfork after core_v1/02_equipment.png: three-tine iron head on a wooden
+    shaft. Held a third of the way up, tines on the blade side so they point up at idle."""
+    pc = Piece('Weapon_Pitchfork')
+    W = WEAPON
+    shaft = pc.part('Weapon.R', bevel=0.0)
+    lathe(shaft, [P(-0.47, 0), P(-0.46, 0.03), P(-0.43, 0.04), P(1.08, 0.034), P(1.1, 0)], W, 8, MAT['Wood_Brown'], offset=22.5)
+    band(shaft, W, -0.15, 0.15, 0.044, 0.044, 0.014, 8, MAT['Leather_Dark'], offset=22.5)
+    band(shaft, W, -0.4, -0.33, 0.044, 0.044, 0.014, 8, MAT['Leather_Dark'], offset=22.5)
+    head = pc.part('Weapon.R', bevel=0.0, hard=40)
+    iron = MAT['Metal_Dark']
+    lathe(head, [P(1.0, 0.04), P(1.12, 0.048), P(1.17, 0.042)], W, 8, iron, cap_first=True, cap_last=True, offset=22.5)
+    rivet(head, frame(weapon_point(0, -0.046, 1.08), WEAPON.to_3x3() @ Vector((0, -1, 0))), r=0.018, h=0.018, mat=iron)
+    side = WEAPON.to_3x3() @ Vector((0, 1, 0))
+    # The U-shaped bar that carries the outer tines, then the three tines.
+    bar = [(-0.16, 1.3), (-0.155, 1.235), (-0.12, 1.185), (-0.06, 1.165), (0, 1.16), (0.06, 1.165), (0.12, 1.185), (0.155, 1.235), (0.16, 1.3)]
+    tube(head, [weapon_point(x, 0, z) for x, z in bar], [0.028] * len(bar), 6, iron, side)
+    tube(head, [weapon_point(0, 0, z) for z in (1.15, 1.3, 1.45, 1.6, 1.66)], [0.03, 0.027, 0.023, 0.014, 0], 6, iron, side)
+    for sx in (-1, 1):
+        tine = [(0.16, 1.29), (0.168, 1.42), (0.165, 1.52), (0.155, 1.6), (0.148, 1.645)]
+        tube(head, [weapon_point(sx * x, 0, z) for x, z in tine], [0.027, 0.024, 0.02, 0.013, 0], 6, iron, side)
     return pc
 
 
@@ -642,11 +932,96 @@ def setup():
     return arm
 
 
+def idle_pose():
+    """Imports a second Warrior with its clips and reads Idle_Weapon at frame 1 into POSE.
+    The copy is deleted again; the action is kept for the previews."""
+    objects = set(bpy.data.objects)
+    materials = set(bpy.data.materials)
+    bpy.ops.import_scene.fbx(filepath=WARRIOR, use_anim=True)
+    new = [o for o in bpy.data.objects if o not in objects]
+    tmp = next(o for o in new if o.type == 'ARMATURE')
+    action = next(a for a in bpy.data.actions if a.name.endswith('|Idle_Weapon'))
+    pose_with(tmp, action)
+    for pb in tmp.pose.bones:
+        POSE[pb.name] = tmp.matrix_world @ pb.matrix @ pb.bone.matrix_local.inverted() @ tmp.matrix_world.inverted()
+    for o in new:
+        data = o.data
+        bpy.data.objects.remove(o)
+        if data is not None and data.users == 0:
+            (bpy.data.meshes if isinstance(data, bpy.types.Mesh) else bpy.data.armatures).remove(data)
+    for m in set(bpy.data.materials) - materials:
+        bpy.data.materials.remove(m)
+    action.use_fake_user = True
+    return action
+
+
+def pose_with(arm, action, frame_no=1):
+    ad = arm.animation_data or arm.animation_data_create()
+    ad.action = action
+    if hasattr(ad, 'action_slot') and ad.action_slot is None and len(getattr(action, 'slots', [])):
+        ad.action_slot = action.slots[0]
+    bpy.context.scene.frame_set(frame_no)
+    bpy.context.view_layer.update()
+
+
+def weapon_frame(arm):
+    """The Warrior_Sword's rest placement without its scale; new weapons are built in it."""
+    sw = bpy.data.objects['Warrior_Sword']
+    arm.data.pose_position = 'REST'
+    bpy.context.view_layer.update()
+    loc, rot, _ = sw.matrix_world.decompose()
+    arm.data.pose_position = 'POSE'
+    bpy.context.view_layer.update()
+    return Matrix.Translation(loc) @ rot.to_matrix().to_4x4()
+
+
+def armored_body(arm):
+    """Warrior_Body minus its tunic skirt and flaps (faces near the hips that hang more
+    than 0.2 off the leg bones) and minus what the thigh plates enclose. Weights, UVs and
+    normals are kept; Unity shows it in place of Warrior_Body while armor is worn."""
+    src = bpy.data.objects['Warrior_Body']
+    me = src.data.copy()
+    me.name = 'Warrior_Body_Armored'
+    ob = bpy.data.objects.new('Warrior_Body_Armored', me)
+    bpy.context.scene.collection.objects.link(ob)
+    ob.matrix_world = src.matrix_world.copy()
+    if not ob.vertex_groups:
+        for g in src.vertex_groups:
+            ob.vertex_groups.new(name=g.name)
+    legs = [BONES[n] for n in ('UpperLeg.L', 'LowerLeg.L', 'UpperLeg.R', 'LowerLeg.R')]
+
+    def off_leg(p):
+        best = 9.0
+        for h, t in legs:
+            _, f = intersect_point_line(p, h, t)
+            best = min(best, (p - h.lerp(t, min(1.0, max(0.0, f)))).length)
+        return best
+
+    co = [ob.matrix_world @ v.co for v in me.vertices]
+    skirt = [p.z < 1.15 and off_leg(p) > 0.2 for p in co]
+    inside = [0.76 < p.z < 1.1 and off_leg(p) <= 0.2 for p in co]
+    for o in bpy.data.objects:
+        o.select_set(False)
+    ob.select_set(True)
+    bpy.context.view_layer.objects.active = ob
+    bpy.ops.object.mode_set(mode='EDIT')
+    bm = bmesh.from_edit_mesh(me)
+    bm.verts.ensure_lookup_table()
+    kill = [f for f in bm.faces if any(skirt[v.index] for v in f.verts) or all(inside[v.index] for v in f.verts)]
+    print("ARMORED BODY drops", len(kill), "of", len(bm.faces), "faces")
+    bmesh.ops.delete(bm, geom=kill, context='FACES')
+    bmesh.update_edit_mesh(me)
+    bpy.ops.object.mode_set(mode='OBJECT')
+    ob.parent = arm
+    ob.modifiers.new('Armature', 'ARMATURE').object = arm
+    return ob
+
+
 def build_set(s, arm):
     col = bpy.data.collections.new(f"Armor_{s.T}")
     bpy.context.scene.collection.children.link(col)
     pieces = [chest(s), waist(s)]
-    sided = [hip_cloth(s), shoulder(s), forearm(s), glove(s), knee(s), shin(s), boot(s)]
+    sided = [hip_cloth(s), shoulder(s), forearm(s), glove(s), thigh(s), knee(s), shin(s), boot(s)]
     if s.tier != 'leather':
         pieces.append(helmet(s))
         sided += [upper_arm(s), elbow(s)]
@@ -670,14 +1045,68 @@ def export(arm, objects, filename):
     print("EXPORTED", path, len(objects), "meshes")
 
 
-def render_previews(sets):
+# ---------------------------------------------------------------- validation / previews
+
+def world_tree(o, deps):
+    ev = o.evaluated_get(deps)
+    me = ev.to_mesh()
+    verts = [o.matrix_world @ v.co for v in me.vertices]
+    polys = [tuple(p.vertices) for p in me.polygons]
+    ev.to_mesh_clear()
+    return BVHTree.FromPolygons(verts, polys), verts, polys
+
+
+def report_clipping(label, pairs):
+    """Counts intersecting triangle pairs between posed meshes: armor the body pokes
+    through, or a shield cutting into the hip. Prints only pairs that touch."""
+    deps = bpy.context.evaluated_depsgraph_get()
+    trees = {}
+    for a, b in pairs:
+        for o in (a, b):
+            if o.name not in trees:
+                trees[o.name] = world_tree(o, deps)
+        ta, va, pa = trees[a.name]
+        tb, _, _ = trees[b.name]
+        hits = ta.overlap(tb)
+        if hits:
+            zs = [va[i].z for h, _ in hits for i in pa[h]]
+            print("CLIP %-6s %-26s x %-26s %4d  z %.2f..%.2f" % (label, a.name, b.name, len(hits), min(zs), max(zs)))
+
+
+# Tier -> (armor set, shield, weapon), as UnitGear dresses them.
+TIERS = [
+    ('Tier0_Commoner', None, None, 'Weapon_Pitchfork'),
+    ('Tier1_Bronze', 'Armor_Leather', 'Shield_Bronze_Round', 'Weapon_Sword_Bronze'),
+    ('Tier2_Silver', 'Armor_Iron', 'Shield_Iron_Round', 'Weapon_Sword_Steel'),
+    ('Tier3_Gold', 'Armor_Gilded', 'Shield_Gilded_Tall', 'Weapon_Sword_Gilded'),
+]
+GEAR_PREFIXES = ('Shield_', 'Weapon_')
+
+
+def show_tier(tier):
+    _, armor, shield, weapon = TIERS[tier]
+    for col in bpy.data.collections:
+        if col.name.startswith('Armor_'):
+            col.hide_render = col.name != armor
+    for o in bpy.data.objects:
+        if o.name.startswith(GEAR_PREFIXES):
+            o.hide_render = o.name not in (shield, weapon)
+    for name in ('Warrior_Body', 'ShoulderPad.L', 'ShoulderPad.R'):
+        bpy.data.objects[name].hide_render = tier > 0
+    bpy.data.objects['Warrior_Body_Armored'].hide_render = tier == 0
+    for name in ('Face', 'Warrior_Sword'):
+        bpy.data.objects[name].hide_render = True
+    bpy.data.objects['Warrior_Head_Bare'].hide_render = False
+
+
+def render_previews():
     scene = bpy.context.scene
     try:
         scene.render.engine = 'BLENDER_EEVEE'
     except TypeError:
         scene.render.engine = 'BLENDER_EEVEE_NEXT'
-    scene.render.resolution_x = 700
-    scene.render.resolution_y = 900
+    scene.render.resolution_x = 560
+    scene.render.resolution_y = 720
     scene.view_settings.view_transform = 'Standard'
     scene.render.film_transparent = False
     world = bpy.data.worlds.new('W')
@@ -703,68 +1132,98 @@ def render_previews(sets):
     cam.type = 'ORTHO'
     scene.camera = co
     shots = {
-        'front': ((0, -12, 1.45), (D(90), 0, 0), 3.6),
-        'side': ((12, 0, 1.45), (D(90), 0, D(90)), 3.6),
-        'back': ((0, 12, 1.45), (D(90), 0, D(180)), 3.6),
-        'quarter': ((8.5, -8.5, 1.45), (D(90), 0, D(45)), 3.6),
-        'rts': ((0, -6.5, 12.5), (D(28), 0, 0), 7.0),
+        'front': ((0, -12, 1.45), (D(90), 0, 0), 3.4),
+        'quarter': ((8.5, -8.5, 1.45), (D(90), 0, D(45)), 3.4),
+        'side': ((12, 0, 1.45), (D(90), 0, D(90)), 3.4),
+        'back': ((0, 12, 1.45), (D(90), 0, D(180)), 3.4),
+        'head': ((4.2, -11.2, 2.45), (D(90), 0, D(20)), 1.5),
+        'hips': ((4.2, 11.2, 1.05), (D(90), 0, D(160)), 1.5),
+        'weapon': ((0.3, -12, 1.8), (D(90), 0, 0), 1.6),
+        'rts': ((0, -6.5, 12.5), (D(28), 0, 0), 6.0),
     }
-    warrior_hidden = ['ShoulderPad.L', 'ShoulderPad.R']
-    for name, col in sets:
-        for other in bpy.data.collections:
-            if other.name.startswith('Armor_'):
-                other.hide_render = other is not col
-        for hn in warrior_hidden:
-            bpy.data.objects[hn].hide_render = True
-        helmet_on = name != 'Armor_Leather'
-        bpy.data.objects['Face'].hide_render = helmet_on
-        bpy.data.objects['Warrior_Head_Bare'].hide_render = not helmet_on
+    for f in os.listdir(PREVIEWS):
+        if f.endswith('.png'):
+            os.remove(os.path.join(PREVIEWS, f))
+    for tier, (label, *_rest) in enumerate(TIERS):
+        show_tier(tier)
+        paths = []
         for shot, (loc, rot, size) in shots.items():
             co.location = loc
             co.rotation_euler = rot
             cam.ortho_scale = size
-            scene.render.filepath = os.path.join(PREVIEWS, f"{name}_{shot}.png")
+            scene.render.filepath = os.path.join(PREVIEWS, f"{label}_{shot}.png")
             bpy.ops.render.render(write_still=True)
+            paths.append(scene.render.filepath)
+        montage(paths, os.path.join(PREVIEWS, f"{label}_sheet.png"))
+
+
+def montage(paths, out):
+    """Side-by-side strip of same-sized renders, for checking a tier at a glance."""
+    import numpy as np
+    tiles = []
+    for p in paths:
+        img = bpy.data.images.load(p)
+        w, h = img.size
+        px = np.empty(w * h * 4, dtype=np.float32)
+        img.pixels.foreach_get(px)
+        tiles.append(px.reshape(h, w, 4))
+        bpy.data.images.remove(img)
+    strip = np.concatenate(tiles, axis=1)
+    h, w = strip.shape[:2]
+    img = bpy.data.images.new(os.path.basename(out), w, h, alpha=True)
+    img.pixels.foreach_set(strip.ravel())
+    img.filepath_raw = out
+    img.file_format = 'PNG'
+    img.save()
+    bpy.data.images.remove(img)
 
 
 def main():
+    global WEAPON
     arm = setup()
+    idle = idle_pose()
+    WEAPON = weapon_frame(arm)
     sets = []
-    exported = []
     for tier in ('leather', 'iron', 'gilded'):
         s = Style(tier)
         objects, col = build_set(s, arm)
         export(arm, objects, f"Armor_{s.T}.fbx")
-        sets.append((f"Armor_{s.T}", col))
-    shields = bpy.data.collections.new('Shields')
-    bpy.context.scene.collection.children.link(shields)
-    for builder, fname in ((shield_round, 'Shield_Iron_Round.fbx'), (shield_tall, 'Shield_Gilded_Tall.fbx')):
-        ob = builder().build(arm, shields)
-        export(arm, [ob], fname)
+        sets.append((objects, col))
+    gear = bpy.data.collections.new('Gear')
+    bpy.context.scene.collection.children.link(gear)
+    builders = [lambda: shield_round('Shield_Bronze_Round', 0.35, 'Metal_Bronze', 'Metal_Bronze'),
+                lambda: shield_round('Shield_Iron_Round', 0.40, 'Metal_Iron', 'Metal_Iron'),
+                shield_tall, pitchfork,
+                lambda: sword('Bronze'), lambda: sword('Steel'), lambda: sword('Gilded')]
+    for builder in builders:
+        ob = builder().build(arm, gear)
+        export(arm, [ob], ob.name + '.fbx')
     bare = bare_head(arm)
     export(arm, [bare], 'Warrior_Head_Bare.fbx')
-    bare.hide_render = True
+    body = armored_body(arm)
+    export(arm, [body], 'Warrior_Body_Armored.fbx')
     tri = 0
     for o in bpy.data.objects:
-        if o.type == 'MESH' and o.name.startswith(('Armor_', 'Shield_')):
+        if o.type == 'MESH' and o.name.startswith(('Armor_', 'Shield_', 'Weapon_')):
             o.data.calc_loop_triangles()
             tri += len(o.data.loop_triangles)
             print("MESH %-28s tris=%5d" % (o.name, len(o.data.loop_triangles)))
     print("TOTAL tris", tri)
+
+    pose_with(arm, idle)
+    obj = bpy.data.objects
+    for (objects, col), (_, _, shield, _) in zip(sets, TIERS[1:]):
+        pairs = [(o, body) for o in objects]
+        pairs += [(obj[shield], o) for o in objects if o.name.split('_')[2] in ('Waist', 'HipCloth', 'Thigh', 'Knee', 'Chest')]
+        pairs.append((obj[shield], body))
+        report_clipping('idle', pairs)
     if RENDER:
         os.makedirs(PREVIEWS, exist_ok=True)
-        round_ob = bpy.data.objects['Shield_Iron_Round']
-        tall_ob = bpy.data.objects['Shield_Gilded_Tall']
-        for name, col in sets:
-            for o in bpy.data.objects:
-                if o.name.startswith('Shield_'):
-                    o.hide_render = True
-            pair = {'Armor_Iron': round_ob, 'Armor_Gilded': tall_ob}.get(name)
-            if pair:
-                pair.hide_render = False
-            render_previews([(n, c) for n, c in sets if n == name])
+        render_previews()
     for o in bpy.data.objects:
         o.hide_render = False
+    for col in bpy.data.collections:
+        col.hide_render = False
     bpy.ops.wm.save_as_mainfile(filepath=BLEND_OUT)
     print("SAVED", BLEND_OUT)
 

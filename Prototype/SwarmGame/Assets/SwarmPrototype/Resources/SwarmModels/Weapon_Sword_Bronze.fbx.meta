@@ -1,0 +1,16 @@
+fileFormatVersion: 2
+guid: de2a951e2d3743afb7ebe7d9cb55deaa
+ModelImporter:
+  serializedVersion: 22200
+  materials:
+    materialImportMode: 2
+    materialName: 0
+    materialSearch: 1
+    materialLocation: 1
+  animations:
+    legacyGenerateAnimations: 4
+  meshes:
+    globalScale: 1
+    useFileScale: 1
+  animationType: 2
+  avatarSetup: 0
