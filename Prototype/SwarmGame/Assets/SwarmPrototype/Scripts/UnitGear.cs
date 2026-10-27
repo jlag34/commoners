@@ -258,7 +258,6 @@ namespace SwarmPrototype
         {
             Color color;
             float metallic = 0f, gloss = 0.25f;
-            Color glow = Color.black;
             switch (name)
             {
                 case "Leather_Brown": color = new Color(0.64f, 0.36f, 0.17f); gloss = 0.3f; break;
@@ -266,7 +265,8 @@ namespace SwarmPrototype
                 case "Wood_Brown": color = new Color(0.64f, 0.41f, 0.2f); gloss = 0.25f; break;
                 case "Metal_Iron": color = new Color(0.8f, 0.82f, 0.86f); metallic = 0.3f; gloss = 0.55f; break;
                 case "Metal_Dark": color = new Color(0.46f, 0.48f, 0.53f); metallic = 0.3f; gloss = 0.45f; break;
-                case "Metal_Gold": color = new Color(1f, 0.74f, 0.18f); metallic = 0.35f; gloss = 0.6f; glow = color * ArmorGlow[Mathf.Clamp(tier, 0, 3)]; break;
+                // No emission on gold: a flat glow washes out the shading and reads as neon yellow.
+                case "Metal_Gold": color = new Color(1f, 0.77f, 0.3f); metallic = 0.4f; gloss = 0.6f; break;
                 case "Metal_Steel": color = new Color(0.84f, 0.86f, 0.9f); metallic = 0.35f; gloss = 0.65f; break;
                 case "Metal_Bronze": color = new Color(0.66f, 0.37f, 0.22f); metallic = 0.3f; gloss = 0.5f; break;
                 case "Team_Blue": color = team; gloss = 0.3f; break;
@@ -276,11 +276,6 @@ namespace SwarmPrototype
             m.name = name;
             m.SetFloat("_Metallic", metallic);
             m.SetFloat("_Glossiness", gloss);
-            if (glow.maxColorComponent > 0f)
-            {
-                m.EnableKeyword("_EMISSION");
-                m.SetColor("_EmissionColor", glow);
-            }
             return m;
         }
 
