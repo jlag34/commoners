@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace SwarmPrototype
@@ -6,14 +7,24 @@ namespace SwarmPrototype
     // swarm looks as strong as it is. Tiers by level: 0, 1-5, 6-10, 11+, after the
     // concept board's peon progression (basic -> armored -> champion).
     //   Strength -> the weapon: a pickaxe at tier 0, then a bronze / steel / glowing gold sword.
-    //   Armor    -> tier 1 leather chest and pauldrons; tier 2 iron plate, helmet and a round
-    //               shield; tier 3 gilded, glowing, with a tower shield.
+    //   Armor    -> tier 1 leather set; tier 2 iron plate, kettle helmet and a round
+    //               shield; tier 3 gilded, glowing, with a tall shield.
     //   Health   -> the whole model grows 5% per tier.
     //   Speed    -> tier 2+ kicks up dust while running.
-    // Pieces are primitives parented to the model's bones so they animate along.
+    // Armor sets are skinned meshes built in Blender on the Warrior's own armature
+    // (art/blender/build_armor.py -> Resources/SwarmModels/Armor_*.fbx). Each piece is
+    // re-bound to this model's bones by name, so it follows the animations. If a set
+    // is missing the old primitive armor is built instead. Weapons are still primitives
+    // parented to the weapon bone.
     public class UnitGear : MonoBehaviour
     {
         static readonly int[] TierStarts = { 1, 6, 11 };
+        static readonly string[] ArmorSets = { null, "Armor_Leather", "Armor_Iron", "Armor_Gilded" };
+        static readonly string[] ShieldSets = { null, null, "Shield_Iron_Round", "Shield_Gilded_Tall" };
+        // Ears and nose without hair, shown under helmets in place of the Face mesh.
+        const string BareHead = "Warrior_Head_Bare";
+        const string ModelFolder = "SwarmModels/";
+        static readonly Dictionary<(string, int, Color), Material> styledMaterials = new Dictionary<(string, int, Color), Material>();
 
         static readonly Color[] SwordTint = { Color.white, new Color(1f, 0.78f, 0.5f), new Color(0.72f, 0.85f, 1f), new Color(1f, 0.85f, 0.3f) };
         static readonly float[] SwordGlow = { 0f, 0f, 0.25f, 0.7f };
@@ -25,6 +36,11 @@ namespace SwarmPrototype
 
         Renderer sword;
         Transform weaponBone, weaponEnd, head, headEnd, shoulderL, shoulderR, lowerArmL, fistL, torso, neck;
+        readonly Dictionary<string, Transform> bones = new Dictionary<string, Transform>();
+        // Base-body parts that armor covers: the model's own shoulder pads, and the hair under a helmet.
+        readonly List<Renderer> shoulderPads = new List<Renderer>();
+        Renderer hair;
+        Color team = new Color(0.1f, 0.33f, 0.85f);
         Vector3 weaponBoneScale = Vector3.one;
         Vector3 swordScale = Vector3.one;
         Vector3 baseScale;
@@ -45,12 +61,14 @@ namespace SwarmPrototype
             return tier;
         }
 
-        public static UnitGear Attach(GameObject model)
+        public static UnitGear Attach(GameObject model, Color team)
         {
             var gear = model.AddComponent<UnitGear>();
             gear.baseScale = model.transform.localScale;
+            gear.team = team;
             foreach (var t in model.GetComponentsInChildren<Transform>(true))
             {
+                if (!gear.bones.ContainsKey(t.name)) gear.bones[t.name] = t;
                 switch (t.name)
                 {
                     case "Weapon.R": gear.weaponBone = t; gear.weaponBoneScale = t.localScale; break;
@@ -66,7 +84,11 @@ namespace SwarmPrototype
                 }
             }
             foreach (var r in model.GetComponentsInChildren<Renderer>())
-                if (r.name.ToLowerInvariant().Contains("sword")) { gear.sword = r; break; }
+            {
+                if (gear.sword == null && r.name.ToLowerInvariant().Contains("sword")) gear.sword = r;
+                else if (r.name.StartsWith("ShoulderPad")) gear.shoulderPads.Add(r);
+                else if (r.name == "Face") gear.hair = r;
+            }
             if (gear.sword != null)
             {
                 gear.swordScale = gear.sword.transform.localScale;
@@ -152,7 +174,103 @@ namespace SwarmPrototype
             armorTier = tier;
             foreach (var piece in armorPieces) Destroy(piece);
             armorPieces.Clear();
+            foreach (var pad in shoulderPads) pad.enabled = tier == 0;
+            if (hair != null) hair.enabled = true;
             if (tier == 0) return;
+            if (!Dress(ArmorSets[tier], tier))
+            {
+                BuildPrimitiveArmor(tier);
+                return;
+            }
+            if (ShieldSets[tier] != null) Dress(ShieldSets[tier], tier);
+            // Helmets hide the hair but keep ears and nose, textured like the face they replace.
+            if (tier >= 2 && hair != null && Dress(BareHead, tier, hair.sharedMaterials)) hair.enabled = false;
+        }
+
+        // Adds every skinned mesh in Resources/SwarmModels/<setName> to this model, bound to
+        // its bones of the same names. Returns false if the set is missing or fits no bone.
+        bool Dress(string setName, int tier, Material[] materials = null)
+        {
+            var prefab = Resources.Load<GameObject>(ModelFolder + setName);
+            if (prefab == null) return false;
+            bool any = false;
+            foreach (var source in prefab.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+            {
+                var sourceBones = source.bones;
+                var mapped = new Transform[sourceBones.Length];
+                bool ok = sourceBones.Length > 0;
+                for (int i = 0; i < sourceBones.Length && ok; i++)
+                    ok = sourceBones[i] != null && bones.TryGetValue(sourceBones[i].name, out mapped[i]);
+                if (!ok)
+                {
+                    Debug.LogWarning($"UnitGear: {setName}/{source.name} uses bones this rig lacks");
+                    continue;
+                }
+                var piece = new GameObject(source.name);
+                piece.transform.SetParent(transform, false);
+                var r = piece.AddComponent<SkinnedMeshRenderer>();
+                r.sharedMesh = source.sharedMesh;
+                r.bones = mapped;
+                r.rootBone = source.rootBone != null && bones.TryGetValue(source.rootBone.name, out var root) ? root : mapped[0];
+                r.localBounds = source.localBounds;
+                r.sharedMaterials = materials ?? Styled(source.sharedMaterials, tier);
+                r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On;
+                armorPieces.Add(piece);
+                any = true;
+            }
+            return any;
+        }
+
+        // The FBX materials only carry a name; the look is set here so the whole swarm
+        // shares one material per (name, tier, team). Team_Blue takes the team color.
+        Material[] Styled(Material[] imported, int tier)
+        {
+            var result = new Material[imported.Length];
+            for (int i = 0; i < imported.Length; i++)
+            {
+                string name = imported[i] != null ? imported[i].name : "";
+                var key = (name, tier, team);
+                if (!styledMaterials.TryGetValue(key, out var m))
+                {
+                    m = Style(name, tier, team) ?? imported[i];
+                    styledMaterials[key] = m;
+                }
+                result[i] = m;
+            }
+            return result;
+        }
+
+        static Material Style(string name, int tier, Color team)
+        {
+            Color color;
+            float metallic = 0f, gloss = 0.25f;
+            Color glow = Color.black;
+            switch (name)
+            {
+                case "Leather_Brown": color = new Color(0.46f, 0.27f, 0.14f); break;
+                case "Leather_Dark": color = new Color(0.25f, 0.14f, 0.07f); break;
+                case "Wood_Brown": color = new Color(0.52f, 0.34f, 0.17f); break;
+                case "Metal_Iron": color = new Color(0.66f, 0.68f, 0.72f); metallic = 0.7f; gloss = 0.6f; break;
+                case "Metal_Dark": color = new Color(0.36f, 0.37f, 0.4f); metallic = 0.6f; gloss = 0.5f; break;
+                case "Metal_Gold": color = new Color(1f, 0.8f, 0.28f); metallic = 0.8f; gloss = 0.7f; glow = color * ArmorGlow[Mathf.Clamp(tier, 0, 3)]; break;
+                case "Team_Blue": color = team; gloss = 0.2f; break;
+                default: return null;
+            }
+            var m = Visuals.Plain(color);
+            m.name = name;
+            m.SetFloat("_Metallic", metallic);
+            m.SetFloat("_Glossiness", gloss);
+            if (glow.maxColorComponent > 0f)
+            {
+                m.EnableKeyword("_EMISSION");
+                m.SetColor("_EmissionColor", glow);
+            }
+            return m;
+        }
+
+        // The primitive armor from before the Blender sets, kept for when a set fails to load.
+        void BuildPrimitiveArmor(int tier)
+        {
 
             var material = Visuals.Plain(ArmorColor[tier]);
             if (ArmorGlow[tier] > 0f)

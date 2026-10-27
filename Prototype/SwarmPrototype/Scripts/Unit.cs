@@ -252,7 +252,7 @@ namespace SwarmPrototype
             visual = UnitAnimator.Attach(model, Visuals.LoadClips(ModelName), body, stats.moveSpeed);
             if (home != null)
             {
-                gear = UnitGear.Attach(model);
+                gear = UnitGear.Attach(model, color);
                 SyncGear();
             }
             if (elite != null) EliteVisual.Dress(model, elite, color, transform.parent);
