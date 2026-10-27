@@ -284,8 +284,9 @@ def ridge(bm, path, side, half_width, height, mat, centre):
 class Piece:
     """One exported mesh object. Parts are separate bmeshes, each rigid to a bone, or with
     bone None skinned like the nearest point of Warrior_Body (see body_weights); a tuple of
-    bone names does the same limited to those bones. Parts on Head are shrunk by HEAD_M
-    first, so everything worn on the head fits the smaller head."""
+    bone names does the same limited to those bones, and a function of the vertex position
+    returns its weights directly. Parts on Head are shrunk by HEAD_M first, so everything
+    worn on the head fits the smaller head."""
 
     def __init__(self, name):
         self.name = name
@@ -353,8 +354,9 @@ class Piece:
         final.free()
         groups = {}
         for i, bi in enumerate(bone_of_vert):
-            if bones[bi] is None or isinstance(bones[bi], tuple):
-                for name, w in skin_weights(me.vertices[i].co, bones[bi]).items():
+            if bones[bi] is None or isinstance(bones[bi], tuple) or callable(bones[bi]):
+                field = bones[bi] if callable(bones[bi]) else lambda co, allow=bones[bi]: skin_weights(co, allow)
+                for name, w in field(me.vertices[i].co).items():
                     groups.setdefault(name, []).append((i, w))
             else:
                 groups.setdefault(bones[bi], []).append((i, 1.0))
@@ -874,7 +876,7 @@ def commoner_head(arm):
     # below the collar: under armor it fills the chest plate's neck opening, where the
     # Warrior body's dark collar would otherwise show.
     neck = pc.part(None, bevel=0.0, hard=80)
-    lathe(neck, [P(1.88, 0.27, 0.33, cx=0.02), P(1.95, 0.28, 0.34, cx=0.02), P(2.0, 0.25, 0.27, cx=0.02), P(2.06, 0.2, 0.2), P(2.12, 0.155, 0.16),
+    lathe(neck, [P(1.88, 0.22, 0.27, cx=0.02), P(1.95, 0.22, 0.26, cx=0.02), P(2.0, 0.21, 0.24, cx=0.02), P(2.06, 0.2, 0.2), P(2.12, 0.155, 0.16),
                  P(2.18, 0.14, 0.145), P(2.24, 0.12, 0.125), P(2.29, 0.095, 0.095)], frame((0, 0.05, 0)), 12, MAT['Skin_Natural'])
     return pc
 
@@ -1123,34 +1125,44 @@ def lerp_bones(chain, z):
 
 
 # Torso from inside the skirt up to the collar: (z, half-width, front, back, centre y).
-TORSO = [(1.34, 0.322, 0.262, 0.27, 0.05), (1.47, 0.315, 0.255, 0.265, 0.05), (1.60, 0.35, 0.29, 0.28, 0.04),
-         (1.75, 0.385, 0.32, 0.29, 0.03), (1.90, 0.4, 0.315, 0.29, 0.03), (2.02, 0.38, 0.28, 0.275, 0.03),
-         (2.10, 0.29, 0.215, 0.225, 0.03), (2.14, 0.19, 0.17, 0.18, 0.03)]
+# The chest stays narrower than the shoulders: rounded shoulder caps (SHOULDER) carry the
+# sleeves, and the arms hang clear of the ribs.
+TORSO = [(1.34, 0.322, 0.262, 0.27, 0.05), (1.47, 0.31, 0.255, 0.265, 0.05), (1.60, 0.33, 0.285, 0.275, 0.04),
+         (1.74, 0.345, 0.31, 0.285, 0.03), (1.86, 0.33, 0.30, 0.28, 0.03), (1.97, 0.29, 0.265, 0.26, 0.03),
+         (2.06, 0.23, 0.21, 0.215, 0.03), (2.13, 0.18, 0.17, 0.18, 0.03)]
+SHOULDER = (0.05, 0.015, 0.145, 0.15)    # cap centre along the upper arm past the joint, lift; radii along / across
+TORSO_BONES = ('Hips', 'Body', 'Abdomen', 'Torso', 'Neck', 'Head', 'Shoulder.L', 'Shoulder.R', 'UpperArm.L', 'UpperArm.R',
+               'LowerArm.L', 'LowerArm.R')
 SKIRT = [P(1.45, 0.258, 0.312), P(1.30, 0.295, 0.365), P(1.15, 0.335, 0.415), P(0.99, 0.37, 0.46)]
 SLIT = 1.15     # the skirt splits into front and back flaps below this
 SKIRT_M = frame((0, 0.05, 0))
 TABARD_HALF = 0.23
 
 
-def tunic(bm):
-    """Body and short sleeves remeshed into one surface, cuffed sleeve hems, a collar,
-    and the skirt below the belt split at the sides. Returns a BVH of the result."""
+def tunic(pc):
+    """Body, rounded shoulders and short sleeves remeshed into one surface, cuffed sleeve
+    hems, a collar, and the skirt below the belt split at the sides. The body keeps to the
+    torso's bones; the skirt shares hem_weights with the tabard. Returns a BVH of it all."""
     cloth = MAT['Cloth_Oatmeal']
+    bm = pc.part(TORSO_BONES, bevel=0.0, hard=89)
     raw = bmesh.new()
     ring_loft(raw, [super_ring(z, w, df, db, cy) for z, w, df, db, cy in TORSO], cloth, cap_first=True, cap_last=True)
+    along, lift, ra, rc = SHOULDER
     for side in ('L', 'R'):
         h, t = BONES['UpperArm.' + side]
-        pts = [h.lerp(t, f) + Vector((0, 0, 0.02 * (1 - f))) for f in (-0.3, 0.0, 0.3, 0.6)]
-        tube(raw, pts, [0.14, 0.155, 0.15, 0.14], 12, cloth, UP)
-    upper = remeshed(raw, 0.016, 520)
-    parts = [upper]
+        d = (t - h).normalized()
+        cap = frame(h + d * along + Vector((0, 0, lift)), d, UP)
+        lathe(raw, [P(-ra, 0), P(-ra * 0.7, rc * 0.72), P(0, rc), P(ra * 0.7, rc * 0.72), P(ra, 0)], cap, 12, cloth)
+        pts = [h.lerp(t, f) + Vector((0, 0, 0.015 * (1 - f))) for f in (0.05, 0.3, 0.6)]
+        tube(raw, pts, [0.148, 0.145, 0.14], 12, cloth, UP)
+    upper = remeshed(raw, 0.016, 560)
     for side in ('L', 'R'):
         h, t = BONES['UpperArm.' + side]
         M = frame(h.lerp(t, 0.6), t - h, UP)
         lathe(bm, shell([P(-0.03, 0.146), P(0.005, 0.148), P(0.012, 0.143)], 0.02), M, 12, cloth, closed=True)
     lathe(bm, shell([P(2.105, 0.185, 0.195, cx=0.002), P(2.14, 0.18, 0.19, cx=0.002)], 0.025), frame((0, 0.04, 0)), 16, cloth,
           closed=True)
-    skirt = bmesh.new()
+    skirt = pc.part(hem_weights, bevel=0.0, hard=89)
     top = [p for p in SKIRT if p['t'] >= SLIT]
     low = [p for p in SKIRT if p['t'] <= SLIT]
     lathe(skirt, shell(top, 0.02), SKIRT_M, 24, cloth, closed=True)
@@ -1158,8 +1170,24 @@ def tunic(bm):
         lathe(skirt, shell(low, 0.02), SKIRT_M, 10, cloth, arc=arc, closed=True, caps=True)
     tree = tree_of(upper, skirt)
     append(bm, upper)
-    append(bm, skirt)
     return tree
+
+
+def hem_weights(co):
+    """Torso weights that hand more and more to the thighs toward the hem, in one smooth
+    field (left thigh on the left, right on the right). The skirt flaps and the tabard
+    over them both use it, so they bend alike and the tabard always stays on top."""
+    w = skin_weights(co, TORSO_BONES)
+    share = 0.35 * smoothstep(1.3, 0.95, co.z)
+    if share <= 0:
+        return w
+    left = smoothstep(-0.4, 0.4, co.x)       # gentle across the panel, so the hem doesn't fold into a V
+    w = {name: x * (1 - share) for name, x in w.items()}
+    w['UpperLeg.L'] = w.get('UpperLeg.L', 0.0) + share * left
+    w['UpperLeg.R'] = w.get('UpperLeg.R', 0.0) + share * (1 - left)
+    top = sorted(w.items(), key=lambda kv: -kv[1])[:4]
+    total = sum(x for _, x in top)
+    return {name: x / total for name, x in top if x / total > 0.01}
 
 
 def append(bm, src):
@@ -1178,6 +1206,18 @@ def tabard(bm, tree):
     xs = [TABARD_HALF * (2 * i / 4 - 1) for i in range(5)]
     zs = [2.1, 2.04, 1.97, 1.88, 1.76, 1.62, 1.48, 1.36, 1.24, 1.16, 0.93]
 
+    def lay(start, d, out, inn):
+        """Outer and inner cloth points where the ray from `start` along `d` meets the tunic,
+        pushed off halfway between its normal and back up the ray, so the cloth clears the
+        tunic where the shoulders slope away from the ray."""
+        hit, n, _, _ = tree.ray_cast(start, d)
+        if hit is None:
+            return None
+        if n.dot(d) > 0:
+            n = -n
+        n = (n - d).normalized()
+        return hit + n * out, hit + n * inn
+
     def panel(sign, bottom):
         outer, inner = [], []
         last = {}
@@ -1186,14 +1226,18 @@ def tabard(bm, tree):
             ro, ri = [], []
             for x in xs:
                 if z > SLIT:
-                    hit, _, _, _ = tree.ray_cast(Vector((x, -2.0 * sign, z)), Vector((0, sign, 0)))
-                    last[x] = hit
+                    lift = 0.01 * smoothstep(1.85, 2.05, z)
+                    pair, zz = None, z
+                    while pair is None and zz > SLIT:      # the top corners step down onto the shoulders
+                        pair = lay(Vector((x, -2.0 * sign, zz)), Vector((0, sign, 0)), 0.026 + lift, 0.01 + lift)
+                        zz -= 0.02
+                    last[x] = pair
                 else:
                     # Hangs straight past the flaring skirt instead of following its facets.
-                    hit = Vector((x, last[x].y - sign * 0.3 * (SLIT - z), z))
-                lift = 0.012 * smoothstep(1.85, 2.05, z)      # clear of the shoulders' curve
-                ro.append(hit + Vector((0, -sign * (0.024 + lift), 0)))
-                ri.append(hit + Vector((0, -sign * (0.008 + lift), 0)))
+                    drop = Vector((0, -sign * 0.3 * (SLIT - z), 0))
+                    pair = tuple(Vector((x, p.y, z)) + drop for p in last[x])
+                ro.append(pair[0])
+                ri.append(pair[1])
             outer.append(ro)
             inner.append(ri)
         slab(bm, outer, inner, blue)
@@ -1201,19 +1245,14 @@ def tabard(bm, tree):
     panel(1, 0.92)
     panel(-1, 0.97)
     for sx in (-1, 1):
-        cols = [sx * x for x in (0.13, 0.18, TABARD_HALF)]
+        cols = [sx * x for x in (0.12, 0.155, 0.19, TABARD_HALF)]
         outer, inner = [], []
-        for k in range(7):
-            phi = D(30 + 120 * k / 6)
+        for k in range(11):
+            phi = D(20 + 140 * k / 10)      # well down onto both panels
             d = Vector((0, -math.cos(phi), math.sin(phi)))
-            ro, ri = [], []
-            for x in cols:
-                c = Vector((x, 0.03, 1.9))
-                hit, _, _, _ = tree.ray_cast(c + d * 2, -d)
-                ro.append(hit + d * 0.027)
-                ri.append(hit + d * 0.01)
-            outer.append(ro)
-            inner.append(ri)
+            pairs = [lay(Vector((x, 0.03, 1.9)) + d * 2, -d, 0.037, 0.017) for x in cols]
+            outer.append([p[0] for p in pairs])
+            inner.append([p[1] for p in pairs])
         slab(bm, outer, inner, blue)
 
 
@@ -1250,7 +1289,7 @@ def trousers(pc):
         bm = pc.part(('Hips', 'Body', 'UpperLeg.' + side, 'LowerLeg.' + side), bevel=0.0, hard=89)
         chain = [BONES['UpperLeg.' + side], BONES['LowerLeg.' + side]]
         zs = [1.18, 1.02, 0.86, 0.72, 0.62, 0.55, 0.44, 0.32]
-        radii = [0.19, 0.2, 0.194, 0.182, 0.174, 0.162, 0.135, 0.12]
+        radii = [0.19, 0.2, 0.194, 0.182, 0.174, 0.158, 0.115, 0.1]
         # A little outward, so the baggy legs part at the crotch.
         pts = [lerp_bones(chain, z) + Vector((sx * 0.012, 0, 0)) for z in zs]
         tube(bm, pts, radii, 12, taupe, LEFT)
@@ -1307,42 +1346,96 @@ def tube_auto(bm, pts, radii, seg, mat):
     return tube(bm, pts, radii, seg, mat, side.normalized())
 
 
-def hands(bm):
-    """Big open hands: a palm block, four fingers along the Fist bones and a thumb along
-    Thumb1/2, in the rest pose (palm down, thumb toward the front)."""
+def open_hand(bm, sx):
+    """The free hand (sx 1 = left): a big open hand with a palm block, four fingers along the
+    Fist bones and a thumb along Thumb1/2, in the rest pose (palm down, thumb to the front)."""
     skin = MAT['Skin_Natural']
     wrist = BONES['Fist.L'][0]
     section = [(math.cos(D(a)), math.sin(D(a))) for a in range(0, 360, 36)]
-    for sx in (1, -1):
-        def at(u, v, w):
-            # u toward the fingertips, v toward the thumb, w the back of the hand
-            return Vector((sx * (wrist.x + u), wrist.y - v, wrist.z + w))
-        palm = [[at(u, v0 + hw * x, ht * y) for x, y in section]
-                for u, hw, ht, v0 in ((-0.03, 0.07, 0.055, 0.0), (0.02, 0.092, 0.052, 0.005), (0.11, 0.098, 0.048, 0.008),
-                                      (0.15, 0.09, 0.04, 0.008))]
-        ring_loft(bm, palm, skin, cap_first=True, cap_last=True)
-        for v, length, r in ((0.062, 0.18, 0.03), (0.021, 0.19, 0.031), (-0.021, 0.18, 0.03), (-0.062, 0.15, 0.027)):
-            pts = [at(0.12 + length * f, v + 0.008, -0.01 - 0.04 * f * f) for f in (0.0, 0.45, 0.8, 0.93, 1.0)]
-            tube_auto(bm, pts, [r, r * 0.97, r * 0.92, r * 0.75, 0.0], 6, skin)
-        pts = [at(0.02, 0.075, -0.015), at(0.075, 0.12, -0.05), at(0.13, 0.15, -0.09), at(0.15, 0.156, -0.1), at(0.16, 0.16, -0.108)]
-        tube_auto(bm, pts, [0.037, 0.034, 0.03, 0.023, 0.0], 6, skin)
+
+    def at(u, v, w):
+        # u toward the fingertips, v toward the thumb, w the back of the hand
+        return Vector((sx * (wrist.x + u), wrist.y - v, wrist.z + w))
+    palm = [[at(u, v0 + hw * x, ht * y) for x, y in section]
+            for u, hw, ht, v0 in ((-0.03, 0.07, 0.055, 0.0), (0.02, 0.092, 0.052, 0.005), (0.11, 0.098, 0.048, 0.008),
+                                  (0.15, 0.09, 0.04, 0.008))]
+    ring_loft(bm, palm, skin, cap_first=True, cap_last=True)
+    for v, length, r in ((0.062, 0.18, 0.03), (0.021, 0.19, 0.031), (-0.021, 0.18, 0.03), (-0.062, 0.15, 0.027)):
+        pts = [at(0.12 + length * f, v + 0.008, -0.01 - 0.04 * f * f) for f in (0.0, 0.45, 0.8, 0.93, 1.0)]
+        tube_auto(bm, pts, [r, r * 0.97, r * 0.92, r * 0.75, 0.0], 6, skin)
+    pts = [at(0.02, 0.075, -0.015), at(0.075, 0.12, -0.05), at(0.13, 0.15, -0.09), at(0.15, 0.156, -0.1), at(0.16, 0.16, -0.108)]
+    tube_auto(bm, pts, [0.037, 0.034, 0.03, 0.023, 0.0], 6, skin)
 
 
 def commoner_body():
     pc = Piece('Commoner_Body')
-    cloth = pc.part(None, bevel=0.0, hard=89)
-    tree = tunic(cloth)
-    # The tabard hangs from the body, not the legs: per-column leg weights zigzag its hem.
-    tabard(pc.part(('Hips', 'Body', 'Abdomen', 'Torso', 'Neck', 'Head', 'Shoulder.L', 'Shoulder.R', 'UpperArm.L',
-                    'UpperArm.R'), bevel=0.0, hard=60), tree)
+    tree = tunic(pc)
+    # Weighted like the tunic right under it, so it moves with the cloth it lies on.
+    tabard(pc.part(lambda co: hem_weights(tree.find_nearest(co)[0]), bevel=0.0, hard=60), tree)
     trousers(pc)
     boots(pc)
     skin = pc.part(None, bevel=0.0, hard=89)
     arms(skin)
-    hands(skin)
-    clothed = tree_of(*[b for b, _, _, _ in pc.parts[:2]])
-    belt(pc.part(None, bevel=0.006, hard=50), clothed)
+    open_hand(skin, 1)
+    fist(pc)
+    clothed = tree_of(*[b for b, _, _, _ in pc.parts[:3]])
+    belt(pc.part(TORSO_BONES, bevel=0.006, hard=50), clothed)
     return pc
+
+
+FIST_R = 0.073     # finger tubes' centre radius around the grip (pitchfork and sword grips are <= 0.047)
+
+
+def fist(pc):
+    """The right hand closed around the weapon grip: four finger rings, a palm out to the
+    wrist and a thumb over the index finger. Built around the grip in the Idle_Weapon pose
+    and rigid to Weapon.R like the weapons themselves, so it holds the shaft in every clip."""
+    skin = MAT['Skin_Natural']
+    bm = pc.part('Weapon.R', bevel=0.0, hard=70)
+    held = POSE['Weapon.R']
+    grip = held @ WEAPON.translation
+    u = (held.to_3x3() @ WEAPON.to_3x3() @ Vector((0, 0, 1))).normalized()      # toward the tines
+    wrist = POSE['Fist.R'] @ BONES['Fist.R'][0]
+    w = wrist - grip
+    w = (w - u * w.dot(u)).normalized()                                        # from the grip toward the wrist
+    v = u.cross(w)
+
+    def around(s, ang, r=FIST_R):
+        a = D(ang)
+        return grip + u * s + (w * math.cos(a) + v * math.sin(a)) * r
+
+    for s, r in ((0.078, 0.026), (0.026, 0.028), (-0.026, 0.027), (-0.078, 0.024)):
+        pts = [around(s, a) for a in range(25, 336, 31)]
+        tube_auto(bm, pts, [r * 0.9] + [r] * (len(pts) - 2) + [r * 0.85], 6, skin)
+    # Palm from inside the forearm's end to the finger rings, a fist's height along the grip.
+    start, end = wrist - w * 0.02, grip + w * (FIST_R * 0.75)
+    d = (end - start).normalized()
+    across = (u - d * u.dot(d)).normalized()
+    up = d.cross(across)
+    section = [(math.cos(D(a)), math.sin(D(a))) for a in range(0, 360, 36)]
+    rings = [[c + across * (x * hw) + up * (y * ht) for x, y in section]
+             for c, hw, ht in ((start, 0.07, 0.055), (start.lerp(end, 0.5), 0.1, 0.055), (end, 0.105, 0.05))]
+    ring_loft(bm, rings, skin, cap_first=True, cap_last=True)
+    thumb = [wrist.lerp(grip, 0.35) + u * 0.07 + v * 0.03, around(0.1, -40, FIST_R + 0.012),
+             around(0.095, -90, FIST_R + 0.02), around(0.088, -135, FIST_R + 0.016), around(0.08, -165, FIST_R + 0.008)]
+    tube_auto(bm, thumb, [0.034, 0.032, 0.03, 0.026, 0.02], 6, skin)
+    back = held.inverted()
+    bmesh.ops.transform(bm, matrix=back, verts=bm.verts[:])
+
+
+def swing_arm(ob, side, degrees):
+    """Bakes the free arm a little away from the body: each vertex turns about the shoulder
+    joint by its weight on the arm's bones, so every clip leaves the arm hanging clear of
+    the torso instead of pressed into its side."""
+    chain = {b + side for b in ('UpperArm.', 'LowerArm.', 'Fist.', 'Fist1.', 'Fist2.', 'Thumb1.', 'Thumb2.')}
+    pivot = BONES['UpperArm.' + side][0]
+    turn = Matrix.Translation(pivot) @ Matrix.Rotation(D(degrees), 4, FRONT if side == 'L' else BACK) @ \
+        Matrix.Translation(-pivot)
+    idx = {g.index for g in ob.vertex_groups if g.name in chain}
+    for vert in ob.data.vertices:
+        wsum = sum(g.weight for g in vert.groups if g.group in idx)
+        if wsum > 0:
+            vert.co = vert.co.lerp(turn @ vert.co, wsum)
 
 
 # --- legs
@@ -1545,27 +1638,32 @@ def sword(kind):
     return pc
 
 
+FORK_DROP = 0.45   # how far the fork sits below the grip compared with a sword: the hand holds
+                   # it with more shaft below the hand than above, toward the manifest's grip
+                   # 1.15 m up a 1.95 m shaft, while the butt still clears the ground at a run
+
+
 def pitchfork():
     """Weapon_Pitchfork after core_v1/02_equipment.png: three-tine iron head on a wooden
-    shaft. Held a third of the way up, tines on the blade side so they point up at idle."""
+    shaft, held just above the middle, tines on the blade side so they point up at idle."""
     pc = Piece('Weapon_Pitchfork')
-    W = WEAPON
+    W = WEAPON @ Matrix.Translation((0, 0, -FORK_DROP))
     shaft = pc.part('Weapon.R', bevel=0.0)
-    lathe(shaft, [P(-0.47, 0), P(-0.46, 0.03), P(-0.43, 0.04), P(1.08, 0.034), P(1.1, 0)], W, 8, MAT['Wood_Brown'], offset=22.5)
-    band(shaft, W, -0.15, 0.15, 0.044, 0.044, 0.014, 8, MAT['Leather_Dark'], offset=22.5)
-    band(shaft, W, -0.4, -0.33, 0.044, 0.044, 0.014, 8, MAT['Leather_Dark'], offset=22.5)
+    lathe(shaft, [P(-0.4, 0), P(-0.39, 0.03), P(-0.36, 0.04), P(1.08, 0.034), P(1.1, 0)], W, 8, MAT['Wood_Brown'], offset=22.5)
+    band(shaft, W, FORK_DROP - 0.15, FORK_DROP + 0.15, 0.044, 0.044, 0.014, 8, MAT['Leather_Dark'], offset=22.5)
+    band(shaft, W, -0.33, -0.26, 0.044, 0.044, 0.014, 8, MAT['Leather_Dark'], offset=22.5)
     head = pc.part('Weapon.R', bevel=0.0, hard=40)
     iron = MAT['Metal_Dark']
     lathe(head, [P(1.0, 0.04), P(1.12, 0.048), P(1.17, 0.042)], W, 8, iron, cap_first=True, cap_last=True, offset=22.5)
-    rivet(head, frame(weapon_point(0, -0.046, 1.08), WEAPON.to_3x3() @ Vector((0, -1, 0))), r=0.018, h=0.018, mat=iron)
+    rivet(head, frame(W @ Vector((0, -0.046, 1.08)), WEAPON.to_3x3() @ Vector((0, -1, 0))), r=0.018, h=0.018, mat=iron)
     side = WEAPON.to_3x3() @ Vector((0, 1, 0))
     # The U-shaped bar that carries the outer tines, then the three tines.
     bar = [(-0.16, 1.3), (-0.155, 1.235), (-0.12, 1.185), (-0.06, 1.165), (0, 1.16), (0.06, 1.165), (0.12, 1.185), (0.155, 1.235), (0.16, 1.3)]
-    tube(head, [weapon_point(x, 0, z) for x, z in bar], [0.028] * len(bar), 6, iron, side)
-    tube(head, [weapon_point(0, 0, z) for z in (1.15, 1.3, 1.45, 1.6, 1.66)], [0.03, 0.027, 0.023, 0.014, 0], 6, iron, side)
+    tube(head, [W @ Vector((x, 0, z)) for x, z in bar], [0.028] * len(bar), 6, iron, side)
+    tube(head, [W @ Vector((0, 0, z)) for z in (1.15, 1.3, 1.45, 1.6, 1.66)], [0.03, 0.027, 0.023, 0.014, 0], 6, iron, side)
     for sx in (-1, 1):
         tine = [(0.16, 1.29), (0.168, 1.42), (0.165, 1.52), (0.155, 1.6), (0.148, 1.645)]
-        tube(head, [weapon_point(sx * x, 0, z) for x, z in tine], [0.027, 0.024, 0.02, 0.013, 0], 6, iron, side)
+        tube(head, [W @ Vector((sx * x, 0, z)) for x, z in tine], [0.027, 0.024, 0.02, 0.013, 0], 6, iron, side)
     return pc
 
 
@@ -1881,7 +1979,9 @@ def main():
     scene_col = bpy.context.scene.collection
     head = commoner_head(arm).build(arm, scene_col)
     export(arm, [head, hair().build(arm, scene_col)], 'Commoner_Head.fbx')
-    export(arm, [commoner_body().build(arm, scene_col)], 'Commoner_Body.fbx')
+    body_ob = commoner_body().build(arm, scene_col)
+    swing_arm(body_ob, 'L', 12)
+    export(arm, [body_ob], 'Commoner_Body.fbx')
     body = armored_body(arm)
     export(arm, [body], 'Warrior_Body_Armored.fbx')
     tri = 0
