@@ -61,8 +61,8 @@ FORK_GRIP = 1.2           # height of the right hand on the shaft
 FORK_LEAN = (0.0, 12.0)   # degrees the top leans in toward him and forward, square to his forearm
 SWORD_GRIP = Vector((-0.60, 0.20, 0.82))       # beside and a little behind the hip, arm nearly straight
 SWORD_DIR = Vector((-0.28, -0.86, -0.41))       # grip -> tip: 24 degrees down, 18 out from straight ahead
-SHIELD_UPPER = Vector((0.18, -0.30, -1.0))     # upper arm carrying the shield: down, a little forward and out
-SHIELD_FOREARM = Vector((0.10, -0.75, -0.65))  # forearm forward and down, elbow bent: he holds it up
+SHIELD_UPPER = Vector((0.45, -0.10, -1.0))     # upper arm carrying the shield: down and out from the side
+SHIELD_FOREARM = Vector((-0.10, -0.35, -0.93))  # forearm behind the shield, a little forward: it hangs upright at the hip
 SHIELD_FACING = Vector((0.35, -1.0, 0.15))     # the shield turns its face this way as far as the forearm's roll allows
 FORK_POLE = Vector((-0.7, 1.0, -0.2))          # right elbow back and out, before solve_grip turns it
 SWORD_POLE = Vector((-0.5, 1.0, -0.1))
@@ -110,9 +110,13 @@ def load_rig():
     bpy.context.view_layer.update()
     WEAPON[:] = Matrix.Translation(loc) @ r.to_matrix().to_4x4()
     HOLD[:] = HELD['Fist.R'].inverted() @ HELD['Weapon.R'] @ REST['Weapon.R'].inverted() @ WEAPON
+    # As build_armor.shield_frame: strapped flat on the forearm, face square to it.
     fa = HELD['LowerArm.L'] @ REST['LowerArm.L'].inverted()
-    n = Vector((math.sin(D(28)), -math.cos(D(28)), 0))
-    SHIELD[:] = zframe((fa @ head_rest('LowerArm.L')).lerp(fa @ TAIL['LowerArm.L'], 0.6) + n * 0.26, n, Z)
+    a, b = fa @ head_rest('LowerArm.L'), fa @ TAIL['LowerArm.L']
+    f = (b - a).normalized()
+    n = Vector((math.sin(D(50)), -math.cos(D(50)), 0))     # build_armor.SHIELD_OUT
+    n = (n - f * n.dot(f)).normalized()
+    SHIELD[:] = zframe(a.lerp(b, 0.72) + n * 0.2, n, Z)                 # SHIELD_LIFT, SHIELD_BACK
     arm.animation_data.action = None
     return arm
 
@@ -350,12 +354,20 @@ def right_arm(P, t, weapon, live):
     return 0.0
 
 
-def shield_roll(R2, d2):
-    """Forearm roll (degrees, from the elbow's hinge) that turns the shield's face most
-    toward SHIELD_FACING; rolling far from the hinge costs a little."""
-    mount = HELD['LowerArm.L'].to_3x3().inverted() @ SHIELD.to_3x3()
-    want = SHIELD_FACING.normalized()
-    best = max(range(-90, 91, 2), key=lambda a: (rot(d2, a) @ R2 @ rest3('LowerArm.L') @ mount @ Z).dot(want) - 0.002 * abs(a))
+def shield_roll(R2, d2, E, S):
+    """Forearm roll (degrees, from the elbow's hinge) that turns the strapped shield's
+    face most toward SHIELD_FACING while the shoulder stays well behind its plane (the
+    pauldron would cut through the rim); rolling far from the hinge costs a little."""
+    mount = HELD['LowerArm.L'].inverted() @ SHIELD
+
+    def score(a):
+        F = Matrix.Translation(E) @ (rot(d2, a) @ R2 @ rest3('LowerArm.L')).to_4x4()
+        shield = F @ mount
+        n = shield.to_3x3() @ Z
+        behind = (S - shield.translation).dot(n)
+        return n.dot(SHIELD_FACING.normalized()) - 0.002 * abs(a) - 4.0 * max(0.0, behind + 0.32)
+
+    best = max(range(-120, 121, 2), key=score)
     print("SHIELD roll %d" % best)
     return best
 
@@ -365,9 +377,9 @@ def left_arm(P, t, shield, live):
     drift = wave(t, 1, 0.65) * live
     S = inherited(P, 'UpperArm.L').translation
     if shield:
-        # The shield is rigid on the forearm and was mounted for gameplay's hanging arm, so
-        # pose the arm as carrying it (elbow bent, forearm forward) and roll the forearm
-        # until the face turns toward SHIELD_FACING.
+        # The shield is strapped flat on the forearm (build_armor.shield_frame): hang it at
+        # the hip with the arm out behind it and roll the forearm until the face turns
+        # toward SHIELD_FACING, keeping the pauldron clear of the rim.
         l1 = (head_rest('LowerArm.L') - head_rest('UpperArm.L')).length
         E = S + (rot(Y, 1.5 * drift) @ SHIELD_UPPER).normalized() * l1
         d2 = (rot(X, 1.2 * breath) @ SHIELD_FOREARM).normalized()
@@ -376,7 +388,7 @@ def left_arm(P, t, shield, live):
         place(P, 'UpperArm.L', axes(E - S, n) @ axes(head_rest('LowerArm.L') - head_rest('UpperArm.L'), n_r).inverted(), S)
         R2 = axes(d2, n) @ axes(TAIL['LowerArm.L'] - head_rest('LowerArm.L'), n_r).inverted()
         if 'shield' not in ROLL:
-            ROLL['shield'] = shield_roll(R2, d2)
+            ROLL['shield'] = shield_roll(R2, d2, E, S)
         place(P, 'LowerArm.L', rot(d2, ROLL['shield']) @ R2)
         # A closed fist on the grip behind the boss, not a hand hanging under the rim.
         turn(P, 'Fist.L', rot(Y, 12))

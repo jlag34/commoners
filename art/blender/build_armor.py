@@ -1581,23 +1581,38 @@ def boot(s):
 POSE = {}      # bone -> world matrix taking rest positions to the Idle_Weapon pose
 
 
-def shield_frame(lift=0.95, offset=0.26, out=28):
-    """Local z faces out of the shield, local x is its top. Designed in the idle pose:
-    upright in front of the left forearm, facing front and turned `out` degrees
-    outward, clear of the gauntlet; then mapped back to rest so the skinned mesh lands
-    there. Following the forearm's own tilt instead leans the top into the shoulder.
-    `lift` is how far along the forearm the centre sits: near the wrist, so the fist is
-    behind the boss and doesn't hang out under the rim."""
+SHIELD_BACK = 0.2   # forearm axis to the shield's back: the bracers and gauntlet cuffs reach ~0.18
+SHIELD_OUT = 50     # degrees the face turns outward from the front; less and the rim cuts the chest
+SHIELD_LIFT = 0.72  # centre along the forearm from the elbow: the fist sits behind the boss, the top clears the pauldron
+STRAP_AT = (0.2, 0.82)   # strap loops along the forearm: below the elbow and at the wrist
+
+
+def shield_frame(back=SHIELD_BACK, out=SHIELD_OUT, lift=SHIELD_LIFT):
+    """Local z faces out of the shield, local x is its top. Strapped flat on the left
+    forearm as in the Idle_Weapon pose: the face square to the forearm and turned as
+    near `out` degrees outward from the front as that allows, its back `back` off the
+    forearm's axis so it rests on the bracer, centred `lift` along the forearm; then
+    mapped back to rest so the skinned mesh lands there. menu_pose.py mirrors this."""
     pose = POSE['LowerArm.L']
     head, tail = BONES['LowerArm.L']
+    a, b = pose @ head, pose @ tail
+    f = (b - a).normalized()
     n = Vector((math.sin(D(out)), -math.cos(D(out)), 0))
-    return pose.inverted() @ frame((pose @ head).lerp(pose @ tail, lift) + n * offset, n, UP)
+    n = (n - f * n.dot(f)).normalized()
+    return pose.inverted() @ frame(a.lerp(b, lift) + n * back, n, UP)
 
 
-def shield_straps(bm, M, depth):
-    """Two straps across the back reaching in to the forearm."""
-    for x in (-0.1, 0.1):
-        box(bm, M @ Matrix.Translation((x, 0, depth - 0.05)), (0.06, 0.30, 0.15), MAT['Leather_Brown'])
+def shield_straps(bm, M, back=SHIELD_BACK, arm_r=0.19):
+    """Leather straps from the shield's back round the forearm, outside the bracer: one
+    below the elbow, one at the wrist for the hand. They wrap the shield side and the
+    flanks; the inner side, against the hip in the gameplay idle, is left to the bracer."""
+    head, tail = BONES['LowerArm.L']
+    n = M.to_3x3() @ Vector((0, 0, 1))
+    rx, cx = (back + arm_r) / 2, (back - arm_r) / 2
+    for t in STRAP_AT:
+        F = frame(head.lerp(tail, t), tail - head, n)
+        lathe(bm, shell([P(-0.032, rx, arm_r, cx=cx), P(0.032, rx, arm_r, cx=cx)], 0.02), F, 12, MAT['Leather_Brown'],
+              arc=(-115, 115), closed=True, caps=True)
 
 
 def shield_round(name, r, rim, boss):
@@ -1612,14 +1627,14 @@ def shield_round(name, r, rim, boss):
     for i in range(8):
         a = D(i * 45 + 22.5)
         rivet(bm, M @ Matrix.Translation((math.cos(a) * (r - 0.002), math.sin(a) * (r - 0.002), 0.075)), r=0.022, h=0.022, mat=rivet_mat)
-    shield_straps(bm, M, -0.04)
+    shield_straps(bm, M)
     return pc
 
 
 def shield_tall():
     pc = Piece('Shield_Gilded_Tall')
     bm = pc.part('LowerArm.L')
-    M = shield_frame(lift=0.9, offset=0.27)
+    M = shield_frame(back=SHIELD_BACK + 0.025, lift=0.95)     # the kite's long top stays under the pauldron
     outline = [(0.50, -0.36), (0.53, -0.18), (0.53, 0.18), (0.50, 0.36), (0.27, 0.36), (-0.05, 0.32), (-0.32, 0.22), (-0.50, 0.07),
                (-0.55, 0), (-0.50, -0.07), (-0.32, -0.22), (-0.05, -0.32), (0.27, -0.36)]
     plate(bm, scale_pts(outline, 0.92), 0.03, M, MAT['Wood_Brown'], z0=-0.025)
@@ -1628,7 +1643,7 @@ def shield_tall():
     lathe(bm, [P(0.085, 0.15, 0.10), P(0.16, 0)], M @ Matrix.Translation((0.02, 0, 0)), 4, MAT['Metal_Gold'], cap_first=True)
     for x, y in scale_pts(outline, 0.93):
         rivet(bm, M @ Matrix.Translation((x, y, 0.07)), r=0.02, h=0.02, mat=MAT['Metal_Gold'])
-    shield_straps(bm, M, -0.05)
+    shield_straps(bm, M, SHIELD_BACK + 0.025)
     return pc
 
 
