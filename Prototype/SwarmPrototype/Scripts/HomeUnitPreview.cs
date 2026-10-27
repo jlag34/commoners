@@ -90,7 +90,7 @@ namespace SwarmPrototype
                     if (animator != null) model.GetComponent<Animator>().cullingMode = AnimatorCullingMode.AlwaysAnimate;
                 }
                 // Starts as the bare commoner (tier 0): pitchfork-era weapon, no armor.
-                gear = UnitGear.Attach(model, PreviewTeam);
+                gear = UnitGear.Attach(model, PreviewTeam, hub: true);
                 var head = model.transform.Find("Commoner_Head");
                 face = head != null ? head.GetComponent<SkinnedMeshRenderer>() : null;
                 if (face != null && face.sharedMesh != null) blinkShape = face.sharedMesh.GetBlendShapeIndex("Blink");

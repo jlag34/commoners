@@ -531,7 +531,7 @@ def upper_arm(s):
     pc = Piece(s.name('UpperArm_L'))
     bm = pc.part('UpperArm.L')
     M = bone_frame('UpperArm.L')
-    prof = [P(0.19, 0.182), P(0.215, 0.182), P(0.215, 0.17), P(0.31, 0.17), P(0.31, 0.182), P(0.335, 0.182)]
+    prof = [P(t * ARM_K, r) for t, r in ((0.19, 0.182), (0.215, 0.182), (0.215, 0.17), (0.31, 0.17), (0.31, 0.182), (0.335, 0.182))]
     lathe(bm, shell(prof, 0.03), M, 12, s.metal, closed=True)
     return pc
 
@@ -552,15 +552,16 @@ def forearm(s):
     pc = Piece(s.name('Bracer_L' if leather else 'Forearm_L'))
     bm = pc.part('LowerArm.L')
     M = bone_frame('LowerArm.L')
+    k = ARM_K
     if leather:
-        lathe(bm, shell([P(0.07, 0.158), P(0.22, 0.152), P(0.40, 0.15)], 0.03), M, 12, s.shell_mat, closed=True)
-        for t in (0.12, 0.31):
+        lathe(bm, shell([P(0.07 * k, 0.158), P(0.22 * k, 0.152), P(0.40 * k, 0.15)], 0.03), M, 12, s.shell_mat, closed=True)
+        for t in (0.12 * k, 0.31 * k):
             band(bm, M, t, t + 0.045, 0.175, 0.175, 0.02, 12, MAT['Leather_Dark'])
             rivet(bm, frame(ring_point(M, 0.175, 0.175, t + 0.022, -90), ring_normal(M, -90)), r=0.02, mat=s.rivet)
     else:
-        prof = [P(0.06, 0.175), P(0.09, 0.175), P(0.09, 0.163), P(0.37, 0.148), P(0.37, 0.16), P(0.40, 0.16)]
+        prof = [P(t * k, r) for t, r in ((0.06, 0.175), (0.09, 0.175), (0.09, 0.163), (0.37, 0.148), (0.37, 0.16), (0.40, 0.16))]
         lathe(bm, shell(prof, 0.03), M, 12, s.metal, closed=True)
-        for t in (0.13, 0.32):
+        for t in (0.13 * k, 0.32 * k):
             rivet(bm, frame(ring_point(M, 0.16, 0.16, t, -90), ring_normal(M, -90)), r=0.02, mat=s.rivet)
     return pc
 
@@ -572,16 +573,17 @@ def glove(s):
     M = bone_frame('Fist.L')
     prof = [P(-0.03, 0.18), P(0.02, 0.17), P(0.10, 0.165)]
     lathe(cuff, shell(prof, 0.03), M, 12, s.shell_mat, closed=True)
+    wrist = BONES['Fist.L'][0]
     hand = pc.part('Fist.L', bevel=0.02)
-    box(hand, frame((1.305, 0.035, 1.82), UP, FRONT), (0.31, 0.22, 0.20), s.shell_mat if leather else MAT['Leather_Brown'])
+    box(hand, frame(wrist + Vector((0.144, -0.008, -0.038)), UP, FRONT), (0.31, 0.22, 0.20), s.shell_mat if leather else MAT['Leather_Brown'])
     if not leather:
-        box(hand, frame((1.31, 0.03, 1.925), UP, FRONT), (0.22, 0.17, 0.035), s.metal)
+        box(hand, frame(wrist + Vector((0.149, -0.013, 0.067)), UP, FRONT), (0.22, 0.17, 0.035), s.metal)
     fingers = pc.part('Fist2.L', bevel=0.018)
     for i in range(4):
         y = -0.075 + i * 0.07
-        box(fingers, frame((1.475, y, 1.825), UP, FRONT), (0.064, 0.18, 0.15), s.shell_mat)
+        box(fingers, frame(wrist + Vector((0.314, y - 0.043, -0.033)), UP, FRONT), (0.064, 0.18, 0.15), s.shell_mat)
     thumb = pc.part('Thumb2.L', bevel=0.018)
-    box(thumb, frame((1.27, -0.145, 1.80), UP, FRONT), (0.07, 0.14, 0.10), s.shell_mat)
+    box(thumb, frame(wrist + Vector((0.109, -0.188, -0.058)), UP, FRONT), (0.07, 0.14, 0.10), s.shell_mat)
     return pc
 
 
@@ -1751,10 +1753,52 @@ def pitchfork():
 
 # ---------------------------------------------------------------- scene / export
 
+ARM_K = 0.7     # upper arms and forearms against the Warrior's: the sculpted commoner's (UnitGear.ArmScale)
+
+
+def shorten_arms(arm):
+    """Shortens the upper arms and forearms to ARM_K of their length, the hands and all
+    below them moved in with the wrists, and refits the meshes skinned to the rig (each
+    arm part squeezed along its bone). UnitGear shortens the live rig to match."""
+    maps = {}
+    bpy.context.view_layer.objects.active = arm
+    bpy.ops.object.mode_set(mode='EDIT')
+    eb = arm.data.edit_bones
+    for side in 'LR':
+        upper, lower = eb['UpperArm.' + side], eb['LowerArm.' + side]
+        shoulder, elbow, wrist = upper.head.copy(), upper.tail.copy(), lower.tail.copy()
+        elbow2 = shoulder + (elbow - shoulder) * ARM_K
+        wrist2 = elbow2 + (wrist - elbow) * ARM_K
+        moved = {b.name: (b.head + wrist2 - wrist, b.tail + wrist2 - wrist) for b in lower.children_recursive}
+        upper.tail, lower.head, lower.tail = elbow2, elbow2, wrist2
+        for name, (h, t) in moved.items():
+            eb[name].head, eb[name].tail = h, t
+        for bone, (a, b) in (('UpperArm.' + side, (shoulder, shoulder)), ('LowerArm.' + side, (elbow, elbow2))):
+            d = (elbow - shoulder if bone.startswith('Upper') else wrist - elbow).normalized()
+            squeeze = Matrix.Identity(3) + (ARM_K - 1) * Matrix([[d.x * d.x, d.x * d.y, d.x * d.z],
+                                                                  [d.y * d.x, d.y * d.y, d.y * d.z],
+                                                                  [d.z * d.x, d.z * d.y, d.z * d.z]])
+            maps[bone] = Matrix.Translation(b) @ squeeze.to_4x4() @ Matrix.Translation(-a)
+        for name in moved:
+            maps[name] = Matrix.Translation(wrist2 - wrist)
+    bpy.ops.object.mode_set(mode='OBJECT')
+    for ob in bpy.data.objects:
+        if ob.type != 'MESH' or not any(m.type == 'ARMATURE' and m.object == arm for m in ob.modifiers):
+            continue
+        names = {g.index: g.name for g in ob.vertex_groups}
+        for v in ob.data.vertices:
+            total = sum(g.weight for g in v.groups)
+            if total <= 0:
+                continue
+            co = v.co.copy()
+            v.co = sum((g.weight / total * (maps.get(names[g.group], Matrix()) @ co) for g in v.groups), Vector())
+
+
 def setup():
     bpy.ops.wm.read_factory_settings(use_empty=True)
     bpy.ops.import_scene.fbx(filepath=WARRIOR, use_anim=False)
     arm = bpy.data.objects['CharacterArmature']
+    shorten_arms(arm)
     for b in arm.data.bones:
         BONES[b.name] = (arm.matrix_world @ b.head_local, arm.matrix_world @ b.tail_local)
     for name, rgba in MATERIALS:
@@ -1791,6 +1835,7 @@ def idle_pose():
     new = [o for o in bpy.data.objects if o not in objects]
     tmp = next(o for o in new if o.type == 'ARMATURE')
     action = next(a for a in bpy.data.actions if a.name.endswith('|Idle_Weapon'))
+    shorten_arms(tmp)
     pose_with(tmp, action)
     for pb in tmp.pose.bones:
         POSE[pb.name] = tmp.matrix_world @ pb.matrix @ pb.bone.matrix_local.inverted() @ tmp.matrix_world.inverted()

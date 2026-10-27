@@ -36,6 +36,13 @@ namespace SwarmPrototype
         const string ArmoredBody = "Warrior_Body_Armored";
         // Armor tiers whose set has a helmet, which the hair would poke through.
         static readonly bool[] Helmeted = { false, false, true, true };
+        // The hub's close-up dresses the commoner's detailed build (Commoner_Head_Hub, ...).
+        const string HubDetail = "_Hub";
+        // build_armor.py shortens the upper arms and forearms that all gear is built on to
+        // this fraction of the Warrior's (ARM_K), for the sculpted commoner. The clips key the
+        // Warrior's own lengths, so the live rig is shortened again after every animation step.
+        const float ArmScale = 0.7f;
+        static readonly string[] ArmJoints = { "LowerArm.L", "LowerArm.R", "Fist.L", "Fist.R", "Thumb1.L", "Thumb1.R" };
         const string ModelFolder = "SwarmModels/";
         static readonly Dictionary<(string, int, Color), Material> styledMaterials = new Dictionary<(string, int, Color), Material>();
 
@@ -56,6 +63,8 @@ namespace SwarmPrototype
         Renderer hair, body;
         readonly List<GameObject> baseParts = new List<GameObject>();
         GameObject commonerHair, commonerCollar;
+        string detail = "";
+        readonly List<(Transform bone, Vector3 position)> armJoints = new List<(Transform, Vector3)>();
         Color team = new Color(0.1f, 0.33f, 0.85f);
         Vector3 weaponBoneScale = Vector3.one;
         Vector3 swordScale = Vector3.one;
@@ -77,11 +86,12 @@ namespace SwarmPrototype
             return tier;
         }
 
-        public static UnitGear Attach(GameObject model, Color team)
+        public static UnitGear Attach(GameObject model, Color team, bool hub = false)
         {
             var gear = model.AddComponent<UnitGear>();
             gear.baseScale = model.transform.localScale;
             gear.team = team;
+            gear.detail = hub ? HubDetail : "";
             foreach (var t in model.GetComponentsInChildren<Transform>(true))
             {
                 if (!gear.bones.ContainsKey(t.name)) gear.bones[t.name] = t;
@@ -106,7 +116,9 @@ namespace SwarmPrototype
                 else if (r.name == "Face") gear.hair = r;
                 else if (r.name == "Warrior_Body") gear.body = r;
             }
-            if (gear.Dress(CommonerHead, 0, gear.baseParts))
+            foreach (var name in ArmJoints)
+                if (gear.bones.TryGetValue(name, out var joint)) gear.armJoints.Add((joint, joint.localPosition * ArmScale));
+            if (gear.Dress(CommonerHead + gear.detail, 0, gear.baseParts))
             {
                 if (gear.hair != null) gear.hair.enabled = false;
                 gear.commonerHair = gear.baseParts.Find(p => p.name == CommonerHair);
@@ -132,6 +144,11 @@ namespace SwarmPrototype
             if (a != armorTier) ApplyArmor(a);
             if (h != healthTier) ApplyHealth(h);
             speedTier = Tier(speedLevel);
+        }
+
+        void LateUpdate()
+        {
+            foreach (var (bone, position) in armJoints) bone.localPosition = position;
         }
 
         void Update()
@@ -211,7 +228,7 @@ namespace SwarmPrototype
             if (tier == 0)
             {
                 // The commoner's clothes; the Warrior body and its pads only if they're missing.
-                if (Dress(CommonerBody, 0, armorPieces)) { if (body != null) body.enabled = false; }
+                if (Dress(CommonerBody + detail, 0, armorPieces)) { if (body != null) body.enabled = false; }
                 else foreach (var pad in shoulderPads) pad.enabled = true;
                 return;
             }
@@ -281,14 +298,15 @@ namespace SwarmPrototype
 
         static Material Style(string name, int tier, Color team)
         {
-            if (name == "Commoner_Tex")
+            if (name.StartsWith("Commoner_Tex"))
             {
-                // The sculpted commoner's colour atlas; its alpha marks the tabard, which
-                // the TeamTint shader multiplies by the team colour.
+                // The sculpted commoner's colour atlas (Commoner_Tex_Hub: the hub build's,
+                // Textures/Commoner_Hub); its alpha marks the tabard, which the TeamTint
+                // shader multiplies by the team colour.
                 var shader = Shader.Find("Swarm/TeamTint");
                 var atlas = shader != null ? new Material(shader) : Visuals.Plain(Color.white);
                 atlas.name = name;
-                atlas.mainTexture = Resources.Load<Texture2D>(ModelFolder + "Textures/Commoner");
+                atlas.mainTexture = Resources.Load<Texture2D>(ModelFolder + "Textures/Commoner" + name.Substring("Commoner_Tex".Length));
                 atlas.SetColor("_TeamColor", team);
                 atlas.SetFloat("_Glossiness", 0.2f);
                 return atlas;

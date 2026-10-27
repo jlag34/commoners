@@ -7,6 +7,7 @@ procedural ones from build_armor.py.
                        Commoner_Collar (padding round the neck, shown under armour)
   Commoner_Body.fbx    tunic, team tabard, belt, trousers, boots, arms and hands
   Textures/Commoner.png    their shared colour atlas; alpha marks the tabard, which takes the team colour
+  ..._Hub.fbx, Commoner_Hub.png    the same at more detail for the hub's close-up (LODS)
 
 Run after build_armor.py (it opens armor_sets.blend, swaps the Commoner_* objects in it
 and saves it again, so menu_pose.py sees the new ones):
@@ -16,8 +17,9 @@ Steps: take the front statue, scale it to the rig and cut it into body / head / 
 colour; decimate each to a game budget and bake the statue's colours onto the low meshes;
 weight them with bone heat on a voxel copy, using a copy of the rig moved onto the
 statue's joints (J); map every vertex into the rig's rest pose through the inverse of its
-blended bone maps, which stretches the statue's shorter arms and squeezes its longer
-torso to the rig's bone lengths; then close the right hand round the weapon grip.
+blended bone maps, which squeezes its longer torso to the rig's bone lengths (build_armor
+shortens the rig's arms to about the statue's); then close the right hand round the weapon
+grip. Everything from the decimation on runs once per level of detail (LODS).
 """
 import bpy, bmesh, math, os, sys, time
 import numpy as np
@@ -28,7 +30,7 @@ from mathutils.interpolate import poly_3d_calc
 HERE = os.path.dirname(os.path.abspath(__file__))
 GAME = os.path.abspath(os.path.join(HERE, "..", ".."))
 MODELS = os.path.join(GAME, "Prototype", "SwarmPrototype", "Resources", "SwarmModels")
-TEXTURE = os.path.join(MODELS, "Textures", "Commoner.png")
+TEXTURES = os.path.join(MODELS, "Textures")
 SOURCE = os.path.join(HERE, "source", "commoner_sheet.glb")
 BLEND = os.path.join(HERE, "armor_sets.blend")
 PREVIEWS = os.path.join(HERE, "previews")
@@ -36,8 +38,9 @@ RENDER = "--no-render" not in sys.argv
 
 HEIGHT = 2.75           # the statue's height on the rig (the procedural commoner's, hair included)
 Y_SHIFT = 0.06          # statue back onto the rig's centre line
-BUDGET = (11000, 3500, 1800)        # body, head, hair triangles after decimation (a scalp copies the hair)
-TEX_RES = 2048
+# Two builds from one fit: the game's for matches, where he is small on screen, and the
+# hub's close-up. Each: (body, head, hair, scalp) triangles, atlas size, file suffix.
+LODS = {'Game': ((4500, 1800, 800, 300), 1024, ''), 'Hub': ((11000, 3500, 1800, 700), 2048, '_Hub')}
 DENSITY = {'Body': 1.0, 'HeadHair': 1.8}        # texels per area against the body's
 
 # Joints on the statue, left side (the right mirrors x), in rig units after scaling.
@@ -51,7 +54,7 @@ HEAD_TOP = 2.75
 SPINE_K = 0.83          # the statue's torso is longer: rig heights above the hips map up by 1/SPINE_K
 HAND_SIZE = 1.2         # hands this much bigger on the rig than on the statue
 HEAD_SIZE = 1.15        # a little bigger than the sheet's, as the armour sheets draw it; helmets fit it (build_armor HEAD_M)
-ARM_THICK = 1.12        # arms get this much thicker as they are stretched to the rig's length
+ARM_THICK = 1.0         # arms this much thicker if they are stretched to the rig's length
 GRIP_R = 0.085          # weapon grip axis to the curled fingers' midline
 
 
@@ -178,7 +181,7 @@ def classify(ob):
     return cls, eyes
 
 
-def split(statue, cls):
+def split(statue, cls, budget, lod):
     """Decimates a copy of the whole statue in one piece (so the cuts between body, head
     and hair don't become dense borders), the head kept finer, then cuts it into Body_Lo
     and HeadHair_Lo (material 0 head, 1 hair)."""
@@ -197,7 +200,7 @@ def split(statue, cls):
         group = lo.vertex_groups.new(name='Collapse')
         group.add(sorted({v for p in me.polygons if p.material_index == k for v in p.vertices}), 1.0, 'REPLACE')
         mod = lo.modifiers.new('Decimate', 'DECIMATE')
-        mod.ratio = (counts.sum() - counts[k] + BUDGET[k]) / counts.sum()
+        mod.ratio = (counts.sum() - counts[k] + budget[k]) / counts.sum()
         mod.use_collapse_triangulate = True
         mod.vertex_group = 'Collapse'
         bpy.ops.object.modifier_apply(modifier='Decimate')
@@ -206,8 +209,8 @@ def split(statue, cls):
     me.set_sharp_from_angle(angle=math.radians(60))
     parts = {}
     for name, keep in (('Body', (0,)), ('HeadHair', (1, 2))):
-        part = bpy.data.objects.new(name + '_Lo', me.copy())
-        part.data.name = name + '_Lo'
+        part = bpy.data.objects.new(name + '_' + lod, me.copy())
+        part.data.name = part.name
         bpy.context.scene.collection.objects.link(part)
         bm = bmesh.new()
         bm.from_mesh(part.data)
@@ -218,12 +221,12 @@ def split(statue, cls):
         bm.to_mesh(part.data)
         bm.free()
         parts[name] = part
-        print(name, "faces", len(part.data.polygons))
+        print(lod, name, "faces", len(part.data.polygons))
     bpy.data.objects.remove(lo)
     return parts
 
 
-def bake(statue, parts):
+def bake(statue, parts, res, suffix):
     """Repacks the statue's own UV islands (inherited through decimation) into one atlas,
     the head denser, and bakes the statue's base colour onto it."""
     lows = [parts[n] for n in ('Body', 'HeadHair')]
@@ -242,8 +245,8 @@ def bake(statue, parts):
     bpy.ops.uv.select_all(action='SELECT')
     bpy.ops.uv.pack_islands(rotate=True, margin=0.006)
     bpy.ops.object.mode_set(mode='OBJECT')
-    img = bpy.data.images.new('Commoner', TEX_RES, TEX_RES, alpha=True)
-    mat = bpy.data.materials.new('Commoner_Tex')
+    img = bpy.data.images.new('Commoner_Bake' + suffix, res, res, alpha=True)
+    mat = bpy.data.materials.new('Commoner_Tex' + suffix)
     mat.use_nodes = True
     nt = mat.node_tree
     tex = nt.nodes.new('ShaderNodeTexImage')
@@ -261,7 +264,7 @@ def bake(statue, parts):
     bk.use_selected_to_active = True
     bk.cage_extrusion = 0.06
     bk.max_ray_distance = 0.2
-    bk.margin = 16
+    bk.margin = res // 128
     bk.margin_type = 'EXTEND'
     bk.use_clear = False
     for n in statue.data.materials[0].node_tree.nodes:
@@ -274,10 +277,11 @@ def bake(statue, parts):
     return img, mat
 
 
-def team_mask(img):
+def team_mask(img, path):
     """Alpha = how much of each texel is tabard blue; there the colour becomes a grey that
     UnitGear's TeamTint shader multiplies by the team's colour (blue comes out as it was)."""
-    px = np.array(img.pixels[:], np.float32).reshape(TEX_RES, TEX_RES, 4)
+    res = img.size[0]
+    px = np.array(img.pixels[:], np.float32).reshape(res, res, 4)
     rgb = px[..., :3]
     hi, lo = rgb.max(-1), rgb.min(-1)
     sat = (hi - lo) / np.maximum(hi, 1e-4)
@@ -288,12 +292,13 @@ def team_mask(img):
     grey = np.clip(lum / ref * 0.72, 0, 1)[..., None]
     px[..., :3] = rgb * (1 - blue[..., None]) + grey * blue[..., None]
     px[..., 3] = blue
-    out = bpy.data.images.new('Commoner_Team', TEX_RES, TEX_RES, alpha=True)
+    out = bpy.data.images.new('Commoner_Team', res, res, alpha=True)
     out.pixels = px.ravel()
-    out.filepath_raw = TEXTURE
+    out.filepath_raw = path
     out.file_format = 'PNG'
     out.save()
-    print("saved", TEXTURE, "tabard texels", int((blue > 0.5).sum()))
+    bpy.data.images.remove(out)
+    print("saved", path, "tabard texels", int((blue > 0.5).sum()))
 
 
 # ---------------------------------------------------------------- onto the rig
@@ -552,10 +557,11 @@ def split_head(ob):
     return ob, hair
 
 
-def scalp(head, hair):
+def scalp(head, hair, tris):
     """A close crop under the hair, so the head is whole when a helmet hides the hair: the
     hair's own faces pulled in to an ellipsoid round the skull, its border left where it
-    meets the face. Joined to the head; it keeps the hair's texture."""
+    meets the face, then thinned to `tris` (only helmets' rims show it). Joined to the
+    head; it keeps the hair's texture."""
     me = hair.data
     co = mesh_array(me, 'co')
     bm = bmesh.new()
@@ -578,6 +584,22 @@ def scalp(head, hair):
     me.uv_layers[0].data.foreach_get('uv', uv)
     tmp.uv_layers[0].data.foreach_set('uv', uv)
     tmp.materials.append(me.materials[0])
+    cap = bpy.data.objects.new('Scalp', tmp)
+    bpy.context.scene.collection.objects.link(cap)
+    inner = cap.vertex_groups.new(name='Inner')            # a group-limited decimate never moves the rim
+    inner.add([int(i) for i in np.nonzero(~rim)[0]], 1.0, 'REPLACE')
+    mod = cap.modifiers.new('Decimate', 'DECIMATE')
+    mod.ratio = tris / len(tmp.polygons)
+    mod.use_collapse_triangulate = True
+    mod.vertex_group = 'Inner'
+    select_only(cap)
+    bpy.ops.object.modifier_apply(modifier='Decimate')
+    bpy.data.objects.remove(cap)
+    bm = bmesh.new()
+    bm.from_mesh(tmp)
+    bm.verts.layers.deform.remove(bm.verts.layers.deform.active)     # 'Inner' would read as the head's first group
+    bm.to_mesh(tmp)
+    bm.free()
     bm = bmesh.new()
     bm.from_mesh(head.data)
     bm.from_mesh(tmp)
@@ -753,10 +775,10 @@ def blink_key(head, eyes, to_rest, img):
 
 # ---------------------------------------------------------------- output
 
-def team_material(mat):
+def team_material(mat, path):
     """Points the material at the saved atlas and tints it like UnitGear's TeamTint shader:
     colour x lerp(1, team, alpha), team blue here."""
-    img = bpy.data.images.load(TEXTURE, check_existing=False)
+    img = bpy.data.images.load(path, check_existing=False)
     img.alpha_mode = 'CHANNEL_PACKED'
     nt = mat.node_tree
     tex = next(n for n in nt.nodes if n.type == 'TEX_IMAGE')
@@ -771,16 +793,31 @@ def team_material(mat):
 
 
 def export(arm, objects, filename):
+    """Exports with the objects named as UnitGear looks for them (Commoner_Body, ...): the
+    game's level has a _Game suffix in the .blend, so it borrows the plain names meanwhile."""
+    lent = []
+    for o in objects:
+        if o.name.endswith('_Game'):
+            plain = o.name[:-len('_Game')]
+            other = bpy.data.objects.get(plain)
+            if other:
+                other.name = plain + '_Lent'
+            o.name = plain
+            lent.append((o, other, plain))
     select_only(arm, *objects)
     bpy.context.view_layer.objects.active = arm
     path = os.path.join(MODELS, filename)
     bpy.ops.export_scene.fbx(filepath=path, use_selection=True, object_types={'ARMATURE', 'MESH'}, add_leaf_bones=False,
                              bake_anim=False, mesh_smooth_type='OFF', path_mode='STRIP', use_mesh_modifiers=True,
                              use_armature_deform_only=False)
+    for o, other, plain in lent:
+        o.name = plain + '_Game'
+        if other:
+            other.name = plain
     print("EXPORTED", path)
 
 
-def preview(arm, objects, img):
+def preview(arm, objects, img, tag):
     """Front, three-quarter, side and back in Idle_Weapon with the pitchfork, and the face."""
     scene = bpy.context.scene
     shown = set(objects) | {bpy.data.objects['Weapon_Pitchfork']}
@@ -811,7 +848,7 @@ def preview(arm, objects, img):
         cam.rotation_euler = (math.radians(90), 0, math.radians(yaw))
         cam.data.ortho_scale = scale
         scene.render.resolution_x, scene.render.resolution_y = (420, 560) if name != 'face' else (480, 480)
-        scene.render.filepath = os.path.join(PREVIEWS, f"Commoner_{name}.png")
+        scene.render.filepath = os.path.join(PREVIEWS, f"Commoner{tag}_{name}.png")
         bpy.ops.render.render(write_still=True)
     bpy.data.objects.remove(cam)
     tex.image = atlas
@@ -827,61 +864,62 @@ def main():
     t0 = time.time()
     bpy.ops.wm.open_mainfile(filepath=BLEND)
     arm = bpy.data.objects['CharacterArmature']
-    for old in ('Commoner_Body', 'Commoner_Head', 'Commoner_Hair', 'Commoner_Collar'):     # build_armor's, or an earlier run's
-        if old in bpy.data.objects:
-            me = bpy.data.objects[old].data
-            bpy.data.objects.remove(bpy.data.objects[old])
-            bpy.data.meshes.remove(me)
+    for ob in [o for o in bpy.data.objects if o.name.startswith('Commoner_')]:     # build_armor's, or an earlier run's
+        me = ob.data
+        bpy.data.objects.remove(ob)
+        bpy.data.meshes.remove(me)
     for m in [m for m in bpy.data.materials if m.name.startswith('Commoner_Tex')]:
-        bpy.data.materials.remove(m)          # UnitGear styles the FBX material by this exact name
+        bpy.data.materials.remove(m)          # UnitGear styles the FBX materials by these exact names
     for i in [i for i in bpy.data.images if i.name.startswith(('Commoner', 'Image_')) and not i.users]:
         bpy.data.images.remove(i)
     statue = load_statue()
     cls, eyes = classify(statue)
-    parts = split(statue, cls)
-    img, mat = bake(statue, parts)
-    team_mask(img)
     rest, tri = statue_bones(arm)
     bones = list(tri)
+    index = {n: i for i, n in enumerate(bones)}
     maps = np.array([np.array(bone_map(rest, tri, n)) for n in bones])
     tree, tris, cos, PW = heat_weights(arm, statue, tri, bones)
+    for lod, (budget, res, suffix) in LODS.items():
+        parts = split(statue, cls, budget, lod)
+        img, mat = bake(statue, parts, res, suffix)
+        atlas = os.path.join(TEXTURES, f"Commoner{suffix}.png")
+        team_mask(img, atlas)
+        for name, lo in parts.items():
+            co = mesh_array(lo.data, 'co')
+            W = sample(tree, tris, cos, PW, co)
+            if name == 'Body':
+                body_overrides(co, W, texel_colours(lo.data, img), bones)
+            else:
+                hair = np.zeros(len(co), bool)
+                for p in lo.data.polygons:
+                    if p.material_index == 1:
+                        hair[list(p.vertices)] = True
+                W[hair] = 0
+                W[hair, index['Head']] = 1
+            fit(lo, top4(W), maps, bones, arm)
+        body = parts['Body']
+        fist(body, arm)
+        head, hair = split_head(parts['HeadHair'])
+        scalp(head, hair, budget[3])
+        neck = collar(head, body, img, arm)
+        neck_skirt(head)
+        blink_key(head, eyes, bone_map(rest, tri, 'Head').inverted(), img)
+        team_material(mat, atlas)
+        tag = '_Game' if lod == 'Game' else ''           # the hub's keeps the plain names, for menu_pose.py
+        for o, name in zip((body, head, hair, neck), ('Commoner_Body', 'Commoner_Head', 'Commoner_Hair', 'Commoner_Collar')):
+            o.name = o.data.name = name + tag
+            o.data.calc_loop_triangles()
+            print("MESH %-20s tris=%5d" % (o.name, len(o.data.loop_triangles)))
+        export(arm, [head, hair, neck], f"Commoner_Head{suffix}.fbx")
+        export(arm, [body], f"Commoner_Body{suffix}.fbx")
+        if RENDER:
+            preview(arm, [body, head, hair], img, tag)
     source = statue.data.materials[0]
     bpy.data.objects.remove(statue)
     for n in source.node_tree.nodes:                 # the sheet's 8k maps, so they aren't saved in the .blend
         if n.type == 'TEX_IMAGE' and n.image:
             bpy.data.images.remove(n.image)
     bpy.data.materials.remove(source)
-    index = {n: i for i, n in enumerate(bones)}
-    for name in ('Body', 'HeadHair'):
-        lo = parts[name]
-        co = mesh_array(lo.data, 'co')
-        W = sample(tree, tris, cos, PW, co)
-        if name == 'Body':
-            body_overrides(co, W, texel_colours(lo.data, img), bones)
-        else:
-            hair = np.zeros(len(co), bool)
-            for p in lo.data.polygons:
-                if p.material_index == 1:
-                    hair[list(p.vertices)] = True
-            W[hair] = 0
-            W[hair, index['Head']] = 1
-        fit(lo, top4(W), maps, bones, arm)
-    body = parts['Body']
-    fist(body, arm)
-    body.name = body.data.name = 'Commoner_Body'
-    head, hair = split_head(parts['HeadHair'])
-    scalp(head, hair)
-    neck = collar(head, body, img, arm)
-    neck_skirt(head)
-    blink_key(head, eyes, bone_map(rest, tri, 'Head').inverted(), img)
-    team_material(mat)
-    for o in (body, head, hair, neck):
-        o.data.calc_loop_triangles()
-        print("MESH %-14s tris=%5d" % (o.name, len(o.data.loop_triangles)))
-    export(arm, [head, hair, neck], 'Commoner_Head.fbx')
-    export(arm, [body], 'Commoner_Body.fbx')
-    if RENDER:
-        preview(arm, [body, head, hair], img)
     bpy.ops.wm.save_as_mainfile(filepath=BLEND)
     print("SAVED", BLEND, "in %.0fs" % (time.time() - t0))
 

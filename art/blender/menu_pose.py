@@ -68,6 +68,10 @@ SHIELD_REACH = 0.5                             # shield radius to keep the shoul
 FORK_POLE = Vector((-0.7, 1.0, -0.2))          # right elbow back and out, before solve_grip turns it
 SWORD_POLE = Vector((-0.5, 1.0, -0.1))
 FREE_WRIST = Vector((0.03, -0.07, -0.80))      # free left wrist from the shoulder (the commoner mesh adds 12 deg out)
+# The hand targets above were set for the Warrior's arms (shoulder to wrist WARRIOR_ARM, the
+# right shoulder at WARRIOR_SHOULDER); fit_reach pulls them in for build_armor's shorter arms.
+WARRIOR_ARM = 0.84
+WARRIOR_SHOULDER = Vector((-0.32, 0.012, 1.868))
 
 FINGER_BONES = ('Fist1', 'Fist2', 'Thumb1', 'Thumb2')
 VARIANTS = [('Menu_Fork', 'fork', False), ('Menu_Fork_Shield', 'fork', True),
@@ -119,7 +123,21 @@ def load_rig():
     n = (n - f * n.dot(f)).normalized()
     SHIELD[:] = zframe(a.lerp(b, 0.72) + n * 0.2, n, Z)                 # SHIELD_LIFT, SHIELD_BACK
     arm.animation_data.action = None
+    fit_reach()
     return arm
+
+
+def fit_reach():
+    """Scales the hand targets toward the shoulders by the rig's arm length against the
+    Warrior's, the weapon grips by it with the hand (~0.2 to the grip) added."""
+    global FORK_GRIP
+    reach = (head_rest('LowerArm.L') - head_rest('UpperArm.L')).length + (TAIL['LowerArm.L'] - head_rest('LowerArm.L')).length
+    k, kh = reach / WARRIOR_ARM, (reach + 0.2) / (WARRIOR_ARM + 0.2)
+    FREE_WRIST[:] = FREE_WRIST * k
+    SWORD_GRIP[:] = WARRIOR_SHOULDER + (SWORD_GRIP - WARRIOR_SHOULDER) * kh
+    FORK_GRIP = WARRIOR_SHOULDER.z - (WARRIOR_SHOULDER.z - FORK_GRIP) * kh
+    FORK_BUTT.x = WARRIOR_SHOULDER.x + (FORK_BUTT.x - WARRIOR_SHOULDER.x) * kh
+    print("REACH arm %.3f: fork grip %.2f butt x %.2f, sword grip %s" % (reach, FORK_GRIP, FORK_BUTT.x, tuple(round(c, 2) for c in SWORD_GRIP)))
 
 
 def set_action(arm, action, frame_no):
