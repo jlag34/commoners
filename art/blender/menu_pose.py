@@ -4,9 +4,9 @@ Warrior rig. Exports Resources/SwarmModels/Warrior_Menu.fbx (armature and action
 Unity binds the clips to the Warrior by bone path) and saves menu_pose.blend.
 
   Menu_Fork          pitchfork upright beside him, its butt planted on the plinth
-  Menu_Fork_Shield   the same with the shield carried beside the left hip
+  Menu_Fork_Shield   the same with the shield carried upright at his left side
   Menu_Sword         sword lowered diagonally outward, free left hand
-  Menu_Sword_Shield  sword lowered, shield beside the hip
+  Menu_Sword_Shield  sword lowered, shield at his side
 
 Legs, hips, spine and head are identical in all four, so switching gear only moves the
 arms: the weapon picks the right arm, the shield (worn from armor tier 1) the left. The
@@ -61,9 +61,10 @@ FORK_GRIP = 1.2           # height of the right hand on the shaft
 FORK_LEAN = (0.0, 12.0)   # degrees the top leans in toward him and forward, square to his forearm
 SWORD_GRIP = Vector((-0.60, 0.20, 0.82))       # beside and a little behind the hip, arm nearly straight
 SWORD_DIR = Vector((-0.28, -0.86, -0.41))       # grip -> tip: 24 degrees down, 18 out from straight ahead
-SHIELD_UPPER = Vector((0.45, -0.10, -1.0))     # upper arm carrying the shield: down and out from the side
-SHIELD_FOREARM = Vector((-0.10, -0.35, -0.93))  # forearm behind the shield, a little forward: it hangs upright at the hip
-SHIELD_FACING = Vector((0.35, -1.0, 0.15))     # the shield turns its face this way as far as the forearm's roll allows
+SHIELD_UPPER = Vector((0.55, 0.0, -1.0))       # upper arm carrying the shield: down and out from the side
+SHIELD_FOREARM = Vector((0.12, -0.30, -0.95))  # forearm hanging behind the shield, a little forward: upright at his side
+SHIELD_FACING = Vector((0.77, -0.64, 0.0))     # face turned 50 degrees out from the front, beside him rather than before him
+SHIELD_REACH = 0.5                             # shield radius to keep the shoulder clear of (the tall kite's top)
 FORK_POLE = Vector((-0.7, 1.0, -0.2))          # right elbow back and out, before solve_grip turns it
 SWORD_POLE = Vector((-0.5, 1.0, -0.1))
 FREE_WRIST = Vector((0.03, -0.07, -0.80))      # free left wrist from the shoulder (the commoner mesh adds 12 deg out)
@@ -356,18 +357,20 @@ def right_arm(P, t, weapon, live):
 
 def shield_roll(R2, d2, E, S):
     """Forearm roll (degrees, from the elbow's hinge) that turns the strapped shield's
-    face most toward SHIELD_FACING while the shoulder stays well behind its plane (the
+    face most toward SHIELD_FACING while the shoulder stays clear of the disc (the
     pauldron would cut through the rim); rolling far from the hinge costs a little."""
     mount = HELD['LowerArm.L'].inverted() @ SHIELD
+    want = SHIELD_FACING.normalized()
 
     def score(a):
         F = Matrix.Translation(E) @ (rot(d2, a) @ R2 @ rest3('LowerArm.L')).to_4x4()
         shield = F @ mount
-        n = shield.to_3x3() @ Z
-        behind = (S - shield.translation).dot(n)
-        return n.dot(SHIELD_FACING.normalized()) - 0.002 * abs(a) - 4.0 * max(0.0, behind + 0.32)
+        n, c = shield.to_3x3() @ Z, shield.translation
+        q = (S - c) - n * (S - c).dot(n)
+        rim = c + q.normalized() * min(q.length, SHIELD_REACH)
+        return n.dot(want) - 0.002 * abs(a) - 4.0 * max(0.0, 0.32 - (S - rim).length)
 
-    best = max(range(-120, 121, 2), key=score)
+    best = max(range(-150, 151, 2), key=score)
     print("SHIELD roll %d" % best)
     return best
 
@@ -377,9 +380,9 @@ def left_arm(P, t, shield, live):
     drift = wave(t, 1, 0.65) * live
     S = inherited(P, 'UpperArm.L').translation
     if shield:
-        # The shield is strapped flat on the forearm (build_armor.shield_frame): hang it at
-        # the hip with the arm out behind it and roll the forearm until the face turns
-        # toward SHIELD_FACING, keeping the pauldron clear of the rim.
+        # The shield is strapped flat on the forearm (build_armor.shield_frame): carry it
+        # upright at his left side, the arm behind it, and roll the forearm until the face
+        # turns toward SHIELD_FACING, keeping the pauldron clear of the rim.
         l1 = (head_rest('LowerArm.L') - head_rest('UpperArm.L')).length
         E = S + (rot(Y, 1.5 * drift) @ SHIELD_UPPER).normalized() * l1
         d2 = (rot(X, 1.2 * breath) @ SHIELD_FOREARM).normalized()
