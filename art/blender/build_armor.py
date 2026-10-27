@@ -4,7 +4,8 @@ one FBX per item into Resources/SwarmModels and saves armor_sets.blend next to t
   Armor_Leather/Iron/Gilded.fbx          armor sets, one mesh per piece
   Shield_Bronze_Round, Shield_Iron_Round, Shield_Gilded_Tall    rigid on the left forearm
   Weapon_Pitchfork, Weapon_Sword_Bronze/Steel/Gilded            rigid on Weapon.R
-  Warrior_Head_Bare.fbx                  the Face mesh without its hair (nose only)
+  Warrior_Head_Bare.fbx                  the Face mesh without its hair (nose) plus ears
+  Warrior_Face_Features.fbx              eyes, brows and mouth laid on the skull
   Warrior_Body_Armored.fbx               the body without its tunic skirt, worn under armor
 
 Run headless:
@@ -49,6 +50,7 @@ MATERIALS = [
     ("Wood_Brown", (0.64, 0.41, 0.20, 1)),
     ("Metal_Steel", (0.84, 0.86, 0.90, 1)),
     ("Metal_Bronze", (0.66, 0.37, 0.22, 1)),
+    ("Face_Features", (1, 1, 1, 1)),     # textured with the FACE_SWATCH atlas
 ]
 MAT = {name: i for i, (name, _) in enumerate(MATERIALS)}
 
@@ -565,8 +567,8 @@ def glove(s):
 
 # The skull (Warrior_Body, Head bone) spans x +-0.286, y -0.318..0.442 and tops out at
 # z 2.888: longer front to back than it is wide. The dome is a superellipse sized to
-# clear it by >= 0.035 everywhere above the brow line.
-HELM_O = Vector((0, 0.06, 2.50))
+# clear it by >= 0.035 everywhere above its rim, which sits just over the brows.
+HELM_O = Vector((0, 0.06, 2.57))
 HELM_FRONT, HELM_SIDE, HELM_H, HELM_N = 0.45, 0.355, 0.47, 2.4
 HELM_T = (0.0, 0.2, 0.4, 0.55, 0.7, 0.82, 0.92, 1.0)
 
@@ -610,7 +612,7 @@ def helmet(s):
             p = dome_point(0.08, ang)
             rivet(bm, frame(p, (p - HELM_O - Vector((0, 0, 0.03))).normalized()), mat=s.rivet)
         for sx in (-1, 1):
-            box(bm, frame((sx * (S - 0.015), 0.10, 2.38), UP, FRONT), (0.13, 0.03, 0.22), MAT['Leather_Brown'])
+            box(bm, frame((sx * (S - 0.005), 0.14, HELM_O.z - 0.12), UP, FRONT), (0.13, 0.03, 0.22), MAT['Leather_Brown'])
     else:
         # Closed helm: brow band, side-and-back skirt flaring at the neck, cheekguards,
         # a crest with a blue inset from brow to nape, diamond on the brow.
@@ -630,9 +632,9 @@ def helmet(s):
 
 
 def bare_head(arm):
-    """The Warrior's Face object is hair strands plus ears and nose. This copies ears and
-    nose (hair islands dropped) as a mesh skinned to Head, so a helmet tier can hide the
-    Face renderer and keep a face."""
+    """The Warrior's Face object is hair strands plus a nose. This keeps the nose (hair
+    islands dropped) and adds ears, as a mesh skinned to Head that Unity shows in place of
+    the Face renderer."""
     face = bpy.data.objects['Face']
     arm.data.pose_position = 'REST'
     bpy.context.view_layer.update()
@@ -662,6 +664,21 @@ def bare_head(arm):
             drop += comp
     bmesh.ops.delete(src, geom=drop, context='VERTS')
     bmesh.ops.transform(src, matrix=M, verts=src.verts[:])
+    # Ears on the sides of the skull, mapped to the cheek's skin texels so they take the
+    # same texture and team tint as the face.
+    uv = src.loops.layers.uv.active
+    body = bpy.data.objects['Warrior_Body'].data
+    _, _, cheek, _ = SKULL.ray_cast(Vector((0.15, -1.0, 2.38)), Vector((0, 1, 0)))
+    corners = [body.uv_layers.active.data[i].uv for i in body.polygons[cheek].loop_indices]
+    skin = sum(corners, Vector((0, 0))) / len(corners)
+    for sx in (-1, 1):
+        F = frame((sx * 0.268, 0.04, EYE_Z - 0.01), Vector((sx, 0.25, 0)), UP)
+        made = lathe(src, [P(-0.02, 0.085, 0.055), P(0.02, 0.08, 0.05), P(0.038, 0.055, 0.034), P(0.046, 0)], F, 10, 0, cap_first=True)
+        bmesh.ops.recalc_face_normals(src, faces=made)
+        for f in made:
+            f.smooth = True
+            for l in f.loops:
+                l[uv].uv = skin
     me = bpy.data.meshes.new('Warrior_Head_Bare')
     src.to_mesh(me)
     src.free()
@@ -673,6 +690,144 @@ def bare_head(arm):
     ob.parent = arm
     ob.modifiers.new('Armature', 'ARMATURE').object = arm
     return ob
+
+
+# --- face
+
+SKULL = None   # BVH of Warrior_Body at rest, for laying features on the face
+# Atlas cell (4x4 grid) and sRGB colour per feature; written to Textures/Face_Features.png.
+FACE_SWATCH = {
+    'white': ((0, 0), (0.96, 0.95, 0.92)),
+    'iris': ((1, 0), (0.36, 0.2, 0.11)),
+    'pupil': ((2, 0), (0.07, 0.05, 0.04)),
+    'glint': ((3, 0), (1.0, 1.0, 1.0)),
+    'lid': ((0, 1), (0.2, 0.12, 0.07)),
+    'brow': ((1, 1), (0.3, 0.18, 0.1)),
+    'lip': ((2, 1), (0.55, 0.25, 0.2)),
+}
+FACE_ATLAS = os.path.join(MODELS, 'Textures', 'Face_Features.png')
+
+
+def face_atlas():
+    """Writes the swatch texture and hooks it into the Face_Features material."""
+    import numpy as np
+    size, cell = 32, 8
+    px = np.ones((size, size, 4), dtype=np.float32)
+    for (i, j), rgb in FACE_SWATCH.values():
+        px[j * cell:(j + 1) * cell, i * cell:(i + 1) * cell, :3] = rgb
+    img = bpy.data.images.new('Face_Features', size, size, alpha=True)
+    img.pixels.foreach_set(px.ravel())
+    img.filepath_raw = FACE_ATLAS
+    img.file_format = 'PNG'
+    img.save()
+    m = bpy.data.materials['Face_Features']
+    bsdf = m.node_tree.nodes.get('Principled BSDF')
+    tex = m.node_tree.nodes.new('ShaderNodeTexImage')
+    tex.image = img
+    tex.interpolation = 'Closest'
+    m.node_tree.links.new(tex.outputs['Color'], bsdf.inputs['Base Color'])
+
+
+def face_uv(name):
+    (i, j), _ = FACE_SWATCH[name]
+    return ((i + 0.5) / 4, (j + 0.5) / 4)
+
+
+def on_face(bm, x, z, lift):
+    """A vertex `lift` off the skull where a ray from straight ahead at (x, z) lands."""
+    hit, n, _, _ = SKULL.ray_cast(Vector((x, -1.0, z)), Vector((0, 1, 0)))
+    return bm.verts.new(hit + n * lift)
+
+
+def face_slab(bm, top, low, swatch, rim):
+    """Closes a lifted grid (`top`) against its copy just above the skin (`low`) into a thin
+    solid, so recalculated normals face out. `rim` lists (row, col) around the edge."""
+    faces = []
+
+    def quad(vs):
+        vs = [v for k, v in enumerate(vs) if v not in vs[:k]]
+        if len(vs) >= 3:
+            faces.append(bm.faces.new(vs))
+
+    for g in (top, low):
+        for r0, r1 in zip(g, g[1:]):
+            for i in range(len(r0) - 1):
+                quad([r0[i], r0[i + 1], r1[i + 1], r1[i]])
+    for (ra, ca), (rb, cb) in zip(rim, rim[1:] + rim[:1]):
+        quad([low[ra][ca], low[rb][cb], top[rb][cb], top[ra][ca]])
+    uv = bm.loops.layers.uv.verify()
+    for f in faces:
+        f.material_index = MAT['Face_Features']
+        for loop in f.loops:
+            loop[uv].uv = face_uv(swatch)
+    return faces
+
+
+def face_patch(bm, rows, swatch, lift):
+    """A thin raised patch over a grid of front-view points (rows of (x, z)), following
+    the facets of the low-poly face."""
+    top = [[on_face(bm, x, z, lift) for x, z in row] for row in rows]
+    low = [[on_face(bm, x, z, 0.0015) for x, z in row] for row in rows]
+    nr, nc = len(rows), len(rows[0])
+    rim = [(0, c) for c in range(nc)] + [(r, nc - 1) for r in range(1, nr)] + \
+          [(nr - 1, c) for c in range(nc - 2, -1, -1)] + [(r, 0) for r in range(nr - 2, 0, -1)]
+    return face_slab(bm, top, low, swatch, rim)
+
+
+def face_ellipse(bm, cx, cz, rx, rz, swatch, lift, seg=14):
+    """Filled ellipse: a centre point, then rings outward (the grid's first row is the centre)."""
+    rows = [[(cx + rx * f * math.cos(D(a * 360 / seg)), cz + rz * f * math.sin(D(a * 360 / seg))) for a in range(seg)]
+            for f in (0.5, 1.0)]
+
+    def layer(lift_):
+        centre = on_face(bm, cx, cz, lift_)
+        grid = [[centre] * (seg + 1)]
+        for row in rows:
+            ring = [on_face(bm, x, z, lift_) for x, z in row]
+            grid.append(ring + ring[:1])     # closed ring
+        return grid
+
+    top, low = layer(lift), layer(0.0015)
+    return face_slab(bm, top, low, swatch, [(2, c) for c in range(seg)])
+
+
+def face_strip(bm, centre, widths, swatch, lift):
+    """A band along a front-view polyline, `widths` thick (full width) at each point."""
+    rows = [[], [], []]
+    for k, ((x, z), w) in enumerate(zip(centre, widths)):
+        x0, z0 = centre[max(k - 1, 0)]
+        x1, z1 = centre[min(k + 1, len(centre) - 1)]
+        tx, tz = x1 - x0, z1 - z0
+        ln = math.hypot(tx, tz) or 1.0
+        nx, nz = -tz / ln, tx / ln
+        for r, f in zip(rows, (-0.5, 0.0, 0.5)):
+            r.append((x + nx * w * f, z + nz * w * f))
+    return face_patch(bm, rows, swatch, lift)
+
+
+# Front-view layout on the face (x wearer's left, z up). Nose runs z 2.31..2.51.
+EYE_X, EYE_Z = 0.105, 2.445
+
+
+def face_features():
+    """Eyes, lids, brows and a smile, after current/01_full_body_armor_fit.png."""
+    pc = Piece('Warrior_Face_Features')
+    for sx in (-1, 1):
+        bm = pc.part('Head', bevel=0.0, hard=80)
+        cx = sx * EYE_X
+        face_ellipse(bm, cx, EYE_Z, 0.043, 0.04, 'white', 0.004)
+        face_ellipse(bm, cx - sx * 0.006, EYE_Z - 0.003, 0.03, 0.035, 'iris', 0.007)
+        face_ellipse(bm, cx - sx * 0.006, EYE_Z - 0.003, 0.015, 0.019, 'pupil', 0.0095)
+        face_ellipse(bm, cx - sx * 0.006 + 0.011, EYE_Z + 0.013, 0.008, 0.008, 'glint', 0.012, seg=8)
+        lid = [(cx + sx * f * 0.05, EYE_Z + 0.03 + 0.012 * (1 - (f / 1.0) ** 2) - (0.012 if f > 0.8 else 0)) for f in (-0.95, -0.6, -0.2, 0.2, 0.6, 0.95)]
+        face_strip(bm, lid, [0.008, 0.013, 0.015, 0.015, 0.013, 0.01], 'lid', 0.0105)
+        # Heavy brows, set a touch low over the eyes for the determined look.
+        brow = [(sx * 0.04, 2.506), (sx * 0.075, 2.522), (sx * 0.115, 2.53), (sx * 0.15, 2.527), (sx * 0.178, 2.515)]
+        face_strip(bm, brow, [0.034, 0.033, 0.03, 0.025, 0.017], 'brow', 0.008)
+    bm = pc.part('Head', bevel=0.0, hard=80)
+    smile = [(f * 0.07, 2.226 + 0.014 * f * f) for f in (-1, -0.66, -0.33, 0, 0.33, 0.66, 1)]
+    face_strip(bm, smile, [0.008, 0.011, 0.012, 0.012, 0.012, 0.011, 0.008], 'lip', 0.005)
+    return pc
 
 
 # --- legs
@@ -1179,10 +1334,14 @@ def montage(paths, out):
 
 
 def main():
-    global WEAPON
+    global WEAPON, SKULL
     arm = setup()
     idle = idle_pose()
     WEAPON = weapon_frame(arm)
+    body_src = bpy.data.objects['Warrior_Body']
+    SKULL = BVHTree.FromPolygons([body_src.matrix_world @ v.co for v in body_src.data.vertices],
+                                 [tuple(p.vertices) for p in body_src.data.polygons])
+    face_atlas()
     sets = []
     for tier in ('leather', 'iron', 'gilded'):
         s = Style(tier)
@@ -1200,6 +1359,8 @@ def main():
         export(arm, [ob], ob.name + '.fbx')
     bare = bare_head(arm)
     export(arm, [bare], 'Warrior_Head_Bare.fbx')
+    features = face_features().build(arm, bpy.context.scene.collection)
+    export(arm, [features], 'Warrior_Face_Features.fbx')
     body = armored_body(arm)
     export(arm, [body], 'Warrior_Body_Armored.fbx')
     tri = 0

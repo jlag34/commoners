@@ -15,16 +15,19 @@ namespace SwarmPrototype
     // armature (art/blender/build_armor.py -> Resources/SwarmModels/*.fbx). Each piece is
     // re-bound to this model's bones by name, so it follows the animations. If a set is
     // missing the old primitive armor or tinted sword is used instead. The Warrior's hair
-    // is always swapped for a bare head, and under armor its body for one without the
-    // tunic skirt, which would otherwise hang out below the plates.
+    // is always swapped for a bare head with ears and a face (eyes, brows, mouth), and
+    // under armor its body for one without the tunic skirt, which would otherwise hang
+    // out below the plates.
     public class UnitGear : MonoBehaviour
     {
         static readonly int[] TierStarts = { 1, 6, 11 };
         static readonly string[] ArmorSets = { null, "Armor_Leather", "Armor_Iron", "Armor_Gilded" };
         static readonly string[] ShieldSets = { null, "Shield_Bronze_Round", "Shield_Iron_Round", "Shield_Gilded_Tall" };
         static readonly string[] WeaponSets = { "Weapon_Pitchfork", "Weapon_Sword_Bronze", "Weapon_Sword_Steel", "Weapon_Sword_Gilded" };
-        // The Face mesh without its hair (just the nose), shown in its place at every tier.
+        // The Face mesh without its hair (nose and ears), shown in its place at every tier,
+        // and the eyes, brows and mouth that sit on the skull.
         const string BareHead = "Warrior_Head_Bare";
+        const string FaceFeatures = "Warrior_Face_Features";
         // Warrior_Body without the tunic skirt, shown in its place while armor is worn.
         const string ArmoredBody = "Warrior_Body_Armored";
         const string ModelFolder = "SwarmModels/";
@@ -96,6 +99,7 @@ namespace SwarmPrototype
                 else if (r.name == "Warrior_Body") gear.body = r;
             }
             if (gear.hair != null && gear.Dress(BareHead, 0, gear.baseParts, gear.hair.sharedMaterials)) gear.hair.enabled = false;
+            gear.Dress(FaceFeatures, 0, gear.baseParts);
             if (gear.sword != null)
             {
                 gear.swordScale = gear.sword.transform.localScale;
@@ -256,6 +260,15 @@ namespace SwarmPrototype
 
         static Material Style(string name, int tier, Color team)
         {
+            if (name == "Face_Features")
+            {
+                // Colour swatches in a small atlas; the mesh's UVs pick one per feature.
+                var face = Visuals.Plain(Color.white);
+                face.name = name;
+                face.mainTexture = Resources.Load<Texture2D>(ModelFolder + "Textures/Face_Features");
+                face.SetFloat("_Glossiness", 0.3f);
+                return face;
+            }
             Color color;
             float metallic = 0f, gloss = 0.25f;
             switch (name)
