@@ -61,9 +61,9 @@ FORK_GRIP = 1.2           # height of the right hand on the shaft
 FORK_LEAN = (0.0, 12.0)   # degrees the top leans in toward him and forward, square to his forearm
 SWORD_GRIP = Vector((-0.60, 0.20, 0.82))       # beside and a little behind the hip, arm nearly straight
 SWORD_DIR = Vector((-0.28, -0.86, -0.41))       # grip -> tip: 24 degrees down, 18 out from straight ahead
-SHIELD_UPPER = Vector((0.30, -0.15, -1.0))     # upper arm direction carrying the shield
-SHIELD_NORMAL = Vector((0.55, -1.0, 0.0))      # faces front and outward, toward the camera
-SHIELD_TOP = Vector((0.0, 0.25, 1.0))          # top leans back a touch
+SHIELD_UPPER = Vector((0.18, -0.30, -1.0))     # upper arm carrying the shield: down, a little forward and out
+SHIELD_FOREARM = Vector((0.10, -0.75, -0.65))  # forearm forward and down, elbow bent: he holds it up
+SHIELD_FACING = Vector((0.35, -1.0, 0.15))     # the shield turns its face this way as far as the forearm's roll allows
 FORK_POLE = Vector((-0.7, 1.0, -0.2))          # right elbow back and out, before solve_grip turns it
 SWORD_POLE = Vector((-0.5, 1.0, -0.1))
 FREE_WRIST = Vector((0.03, -0.07, -0.80))      # free left wrist from the shoulder (the commoner mesh adds 12 deg out)
@@ -350,23 +350,40 @@ def right_arm(P, t, weapon, live):
     return 0.0
 
 
+def shield_roll(R2, d2):
+    """Forearm roll (degrees, from the elbow's hinge) that turns the shield's face most
+    toward SHIELD_FACING; rolling far from the hinge costs a little."""
+    mount = HELD['LowerArm.L'].to_3x3().inverted() @ SHIELD.to_3x3()
+    want = SHIELD_FACING.normalized()
+    best = max(range(-90, 91, 2), key=lambda a: (rot(d2, a) @ R2 @ rest3('LowerArm.L') @ mount @ Z).dot(want) - 0.002 * abs(a))
+    print("SHIELD roll %d" % best)
+    return best
+
+
 def left_arm(P, t, shield, live):
     breath = wave(t, 2, 0.1) * live
     drift = wave(t, 1, 0.65) * live
     S = inherited(P, 'UpperArm.L').translation
     if shield:
-        # The shield is rigid on the forearm: orient the shield, the forearm follows; the
-        # upper arm hangs to the elbow.
+        # The shield is rigid on the forearm and was mounted for gameplay's hanging arm, so
+        # pose the arm as carrying it (elbow bent, forearm forward) and roll the forearm
+        # until the face turns toward SHIELD_FACING.
         l1 = (head_rest('LowerArm.L') - head_rest('UpperArm.L')).length
         E = S + (rot(Y, 1.5 * drift) @ SHIELD_UPPER).normalized() * l1
-        want = zframe(Vector(), rot(Z, 1.0 * drift) @ SHIELD_NORMAL, SHIELD_TOP)
-        F = want.to_3x3() @ SHIELD.to_3x3().inverted() @ HELD['LowerArm.L'].to_3x3()
-        d2 = F @ Y
-        d1r = head_rest('LowerArm.L') - head_rest('UpperArm.L')
-        n_r = Y.cross((TAIL['LowerArm.L'] - head_rest('UpperArm.L')).normalized())
-        place(P, 'UpperArm.L', axes(E - S, (E - S).cross(d2)) @ axes(d1r, n_r).inverted(), S)
-        P['LowerArm.L'] = Matrix.Translation(E) @ F.to_4x4()
-        return ('Fist.L', 'Fist1.L', 'Fist2.L', 'Thumb1.L', 'Thumb2.L')
+        d2 = (rot(X, 1.2 * breath) @ SHIELD_FOREARM).normalized()
+        n = (E - S).cross(d2).normalized()
+        n_r = Y.cross((TAIL['LowerArm.L'] - head_rest('UpperArm.L')).normalized()).normalized()
+        place(P, 'UpperArm.L', axes(E - S, n) @ axes(head_rest('LowerArm.L') - head_rest('UpperArm.L'), n_r).inverted(), S)
+        R2 = axes(d2, n) @ axes(TAIL['LowerArm.L'] - head_rest('LowerArm.L'), n_r).inverted()
+        if 'shield' not in ROLL:
+            ROLL['shield'] = shield_roll(R2, d2)
+        place(P, 'LowerArm.L', rot(d2, ROLL['shield']) @ R2)
+        # A closed fist on the grip behind the boss, not a hand hanging under the rim.
+        turn(P, 'Fist.L', rot(Y, 12))
+        turn(P, 'Fist1.L', rot(Y, 70 + 3 * drift))
+        turn(P, 'Fist2.L', rot(Y, 80))
+        turn(P, 'Thumb1.L', rot(Y, 25))
+        return ()
     wrist = S + FREE_WRIST + Vector((0.0, 0.006 * drift, 0.006 * breath))
     two_bone(P, 'UpperArm.L', 'LowerArm.L', wrist, Vector((0.3, 1.0, 0.0)), Y)
     place(P, 'Fist.L', rot(Y, 6) @ delta(P, 'LowerArm.L'))

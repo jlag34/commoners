@@ -1581,11 +1581,13 @@ def boot(s):
 POSE = {}      # bone -> world matrix taking rest positions to the Idle_Weapon pose
 
 
-def shield_frame(lift=0.6, offset=0.26, out=28):
+def shield_frame(lift=0.95, offset=0.26, out=28):
     """Local z faces out of the shield, local x is its top. Designed in the idle pose:
     upright in front of the left forearm, facing front and turned `out` degrees
     outward, clear of the gauntlet; then mapped back to rest so the skinned mesh lands
-    there. Following the forearm's own tilt instead leans the top into the shoulder."""
+    there. Following the forearm's own tilt instead leans the top into the shoulder.
+    `lift` is how far along the forearm the centre sits: near the wrist, so the fist is
+    behind the boss and doesn't hang out under the rim."""
     pose = POSE['LowerArm.L']
     head, tail = BONES['LowerArm.L']
     n = Vector((math.sin(D(out)), -math.cos(D(out)), 0))
@@ -1617,7 +1619,7 @@ def shield_round(name, r, rim, boss):
 def shield_tall():
     pc = Piece('Shield_Gilded_Tall')
     bm = pc.part('LowerArm.L')
-    M = shield_frame(lift=0.55, offset=0.27)
+    M = shield_frame(lift=0.9, offset=0.27)
     outline = [(0.50, -0.36), (0.53, -0.18), (0.53, 0.18), (0.50, 0.36), (0.27, 0.36), (-0.05, 0.32), (-0.32, 0.22), (-0.50, 0.07),
                (-0.55, 0), (-0.50, -0.07), (-0.32, -0.22), (-0.05, -0.32), (0.27, -0.36)]
     plate(bm, scale_pts(outline, 0.92), 0.03, M, MAT['Wood_Brown'], z0=-0.025)
