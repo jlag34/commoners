@@ -4,12 +4,17 @@ using UnityEngine;
 namespace SwarmPrototype
 {
     // Look and feel only: lighting, ground, scenery and loading models from
-    // Resources/SwarmModels. Nothing here touches gameplay. Every model is optional;
-    // if one is missing the caller falls back to plain shapes.
+    // Resources/SwarmModels. Nothing here touches gameplay except the trees and
+    // rocks, which block units. Every model is optional; if one is missing the
+    // caller falls back to plain shapes.
     public static class Visuals
     {
         const string ModelFolder = "SwarmModels/";
         const float LaneHalfWidth = 14f;
+        // Parent of all trees, rocks and decor; the NavMesh bake marks it not walkable.
+        public const string SceneryName = "Scenery";
+        // Unnamed layer for the tree and rock colliders, so clicks can look through them.
+        public const int SceneryLayer = 29;
 
         static readonly Color SunColor = new Color(1f, 0.93f, 0.8f);
         static readonly Color SkyColor = new Color(0.62f, 0.75f, 0.88f);
@@ -323,11 +328,11 @@ namespace SwarmPrototype
 
         const float CampClear = 11f;
 
-        // Trees and rocks around the edges and either side of the lanes. They have
-        // no colliders, so they never block units.
+        // Trees and rocks around the edges and either side of the lanes. They block
+        // units (see AddBlocker); bushes, grass and flowers don't.
         public static void Scatter(Transform root, GameConfig config, MapLayout layout)
         {
-            var parent = new GameObject("Scenery").transform;
+            var parent = new GameObject(SceneryName).transform;
             parent.SetParent(root, false);
 
             var random = new System.Random(7);
@@ -347,6 +352,7 @@ namespace SwarmPrototype
 
                 bool rock = random.NextDouble() < 0.25;
                 var prop = rock ? Rock(parent, random) : Tree(parent, random);
+                AddBlocker(prop, !rock);
                 prop.transform.position = new Vector3(x, 0f, z);
                 prop.transform.rotation = Quaternion.Euler(0f, (float)random.NextDouble() * 360f, 0f);
                 placed++;
@@ -368,6 +374,36 @@ namespace SwarmPrototype
                 holder.rotation = Quaternion.Euler(0f, (float)random.NextDouble() * 360f, 0f);
                 foreach (var r in model.GetComponentsInChildren<Renderer>())
                     r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            }
+        }
+
+        // A collider over the prop's footprint, on SceneryLayer. Units bump off it, and
+        // the NavMesh bake cuts a hole for it so routes go round. Trees get a round one
+        // under most of the crown (not just the trunk) so nobody seems to stand inside
+        // a tree from the camera; rocks get a box a little inside their outline.
+        // Call before the prop is moved or turned: it reads the bounds at the origin.
+        static void AddBlocker(GameObject prop, bool round)
+        {
+            var renderers = prop.GetComponentsInChildren<Renderer>();
+            if (renderers.Length == 0) return;
+            Bounds bounds = renderers[0].bounds;
+            foreach (var r in renderers) bounds.Encapsulate(r.bounds);
+
+            var blocker = new GameObject("Blocker") { layer = SceneryLayer };
+            blocker.transform.SetParent(prop.transform, false);
+            Vector3 center = prop.transform.InverseTransformPoint(bounds.center);
+            if (round)
+            {
+                var capsule = blocker.AddComponent<CapsuleCollider>();
+                capsule.center = center;
+                capsule.height = bounds.size.y;
+                capsule.radius = Mathf.Max(0.4f, 0.45f * Mathf.Min(bounds.extents.x, bounds.extents.z));
+            }
+            else
+            {
+                var box = blocker.AddComponent<BoxCollider>();
+                box.center = center;
+                box.size = new Vector3(bounds.size.x * 0.85f, bounds.size.y, bounds.size.z * 0.85f);
             }
         }
 

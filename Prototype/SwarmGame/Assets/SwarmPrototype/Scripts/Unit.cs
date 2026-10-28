@@ -37,6 +37,8 @@ namespace SwarmPrototype
         const float IdleBuildingAggro = 18f;
         // Boxed in on all sides this long: stop being polite and push through.
         const float WaitPatience = 0.6f;
+        // How often a close-range chase rechecks for a tree or rock in the way.
+        const float LineCheckInterval = 0.25f;
 
         static PhysicMaterial slippery;
 
@@ -123,6 +125,9 @@ namespace SwarmPrototype
         int corner;
         bool hasPath;
         float nextRepathTime;
+        Combatant lineTarget;
+        bool lineBlocked;
+        float nextLineCheckTime;
         // Move command: walk to the rally point ignoring enemies until arrived.
         bool forceMove;
         float forceStuckTime;
@@ -553,13 +558,32 @@ namespace SwarmPrototype
             Vector3 toTarget = target.transform.position - transform.position;
             toTarget.y = 0f;
             float distance = toTarget.magnitude;
-            // Far away, or up on a plateau we're not on: follow the route (up the ramp).
-            if (distance > target.Radius + Radius + CloseRange || !SameLevel(target))
+            // Far away, up on a plateau we're not on (route goes up the ramp), or
+            // a tree or rock in the way (route goes round it): follow the route.
+            if (distance > target.Radius + Radius + CloseRange || !SameLevel(target) || LineBlocked(target, toTarget, distance))
                 return MoveTowards(target.transform.position) != null;
 
             bool blocked = Steer(target.transform.position, target) != null;
             Face(target.transform.position);
             return blocked;
+        }
+
+        // True if the straight run to `target`'s edge crosses a hole in the NavMesh
+        // (a tree, a rock, a cliff). Buildings sit in their own carved hole, so they
+        // aren't checked. Cached for LineCheckInterval.
+        bool LineBlocked(Combatant target, Vector3 toTarget, float distance)
+        {
+            if (target.IsBuilding) return false;
+            if (target == lineTarget && Time.time < nextLineCheckTime) return lineBlocked;
+            lineTarget = target;
+            nextLineCheckTime = Time.time + LineCheckInterval;
+            lineBlocked = false;
+            float reach = distance - target.Radius - Radius - 0.5f;
+            if (reach <= 0f) return false;
+            Vector3 feet = transform.position - Vector3.up * scale;
+            if (!NavMesh.SamplePosition(feet, out var from, 1f, NavMesh.AllAreas)) return false;
+            lineBlocked = NavMesh.Raycast(from.position, from.position + toTarget / distance * reach, out _, NavMesh.AllAreas);
+            return lineBlocked;
         }
 
         // Walks the NavMesh route toward `goal`. Returns whoever was in the way, if anyone.

@@ -9,6 +9,9 @@ namespace SwarmPrototype
     // is in Hud.cs and the shop in Shop.cs.
     public class PlayerCommander : MonoBehaviour
     {
+        // Clicks look through trees and rocks to the ground or tower behind them.
+        const int ClickMask = ~(1 << Visuals.SceneryLayer);
+
         Spawner playerBase;
         Spawner[] bases;
         Transform flag;
@@ -125,7 +128,7 @@ namespace SwarmPrototype
             point.x = Mathf.Clamp(point.x, -limit, limit);
             point.z = Mathf.Clamp(point.z, -limit, limit);
             // Snap to the ground or plateau under that spot.
-            if (Physics.Raycast(point + Vector3.up * 50f, Vector3.down, out var hit, 100f, ~0, QueryTriggerInteraction.Ignore)) point.y = hit.point.y;
+            if (Physics.Raycast(point + Vector3.up * 50f, Vector3.down, out var hit, 100f, ClickMask, QueryTriggerInteraction.Ignore)) point.y = hit.point.y;
             playerBase.RallyPoint = point;
             flag.gameObject.SetActive(true);
             flag.position = point;
@@ -137,7 +140,7 @@ namespace SwarmPrototype
         // True if the ray lands on `tower`, looking through any units standing in front of it.
         static bool HitsTower(Ray ray, Spawner tower)
         {
-            var hits = Physics.RaycastAll(ray, 500f, ~0, QueryTriggerInteraction.Ignore);
+            var hits = Physics.RaycastAll(ray, 500f, ClickMask, QueryTriggerInteraction.Ignore);
             System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
             foreach (var hit in hits)
             {
@@ -152,7 +155,7 @@ namespace SwarmPrototype
         // First thing the ray hits that isn't a unit or a base: low ground, a ramp or a plateau.
         static bool GroundPoint(Ray ray, out Vector3 point)
         {
-            var hits = Physics.RaycastAll(ray, 500f, ~0, QueryTriggerInteraction.Ignore);
+            var hits = Physics.RaycastAll(ray, 500f, ClickMask, QueryTriggerInteraction.Ignore);
             System.Array.Sort(hits, (a, b) => a.distance.CompareTo(b.distance));
             foreach (var hit in hits)
             {

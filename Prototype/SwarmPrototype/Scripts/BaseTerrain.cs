@@ -158,8 +158,9 @@ namespace SwarmPrototype
             var bounds = new Bounds(Vector3.zero, new Vector3(mapSize + 10f, 40f, mapSize + 10f));
             var sources = new List<NavMeshBuildSource>();
             var markups = new List<NavMeshBuildMarkup>();
+            // The plateau foot, and trees and rocks, so no walkable island bakes on top of one.
             foreach (var t in root.GetComponentsInChildren<Transform>())
-                if (t.name == FootName)
+                if (t.name == FootName || t.name == Visuals.SceneryName)
                     markups.Add(new NavMeshBuildMarkup { root = t, overrideArea = true, area = NotWalkableArea });
             // Buildings sit on BuildingLayer and carve the mesh instead, so the hole
             // they make disappears when they're destroyed.
