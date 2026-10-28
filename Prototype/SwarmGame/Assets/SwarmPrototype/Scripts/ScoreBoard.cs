@@ -2,7 +2,7 @@ using UnityEngine;
 
 namespace SwarmPrototype
 {
-    // Standings card under the top-right buttons: one row per player with a
+    // Standings card top-right: one row per player with a
     // team swatch, name, total upgrade level and kills. Compact shows the first
     // four rows plus "+N more"; Tab (or the footer) expands to everyone; the X
     // hides the card and Tab brings it back.
@@ -12,7 +12,7 @@ namespace SwarmPrototype
 
         const float Width = 270f;
         const float Edge = 14f;
-        const float Top = 14f + 44f + 10f;   // under the icon buttons
+        const float Top = 14f;
         const float RowHeight = 30f;
         const float HeaderHeight = 34f;
         const float FooterHeight = 34f;

@@ -9,12 +9,19 @@ using UnityEngine.UI;
 #if ENABLE_INPUT_SYSTEM && !ENABLE_LEGACY_INPUT_MANAGER
 using UnityEngine.InputSystem.UI;
 #endif
+using static SwarmPrototype.HubWidgets;
 
 namespace SwarmPrototype
 {
-    // One social surface survives the home/match transition. All data is explicitly simulated.
+    // The in-match social panel: a card above the HUD's bottom-right buttons with
+    // Friends (requests, friends with last message and unread), Clan (browser, or
+    // your clan with its chat) and direct chats, built from the hub widget kit so
+    // it matches the home screens. One instance survives the home/match transition.
+    // All data is SocialDemoState: explicitly simulated, nothing leaves the process.
     public class SocialOverlay : MonoBehaviour
     {
+        const float PanelWidth = 380, PanelHeight = 580, Edge = 14, AboveButtons = 14 + 44 + 12;
+
         static SocialOverlay instance;
         public SocialDemoState Data { get; private set; }
         public event Action Changed;
@@ -22,13 +29,14 @@ namespace SwarmPrototype
         public static bool IsTyping => EventSystem.current != null && EventSystem.current.currentSelectedGameObject != null
             && EventSystem.current.currentSelectedGameObject.GetComponent<TMP_InputField>() is TMP_InputField input && input.isFocused;
         public string SelectedThread { get; private set; } = SocialDemoState.DirectThread("Mira");
+
         RectTransform safe, panel, toast;
         GameObject canvas;
-        Button matchButton;
-        string view, status = "", friendDraft = "", clanName = "", clanTag = "";
+        ScrollRect chatScroll;
+        string view, status = "", friendDraft = "", clanSearch = "", clanName = "", clanTag = "";
         readonly Dictionary<string, string> drafts = new Dictionary<string, string>();
         GameObject previousSelection;
-        bool visible, rendering;
+        bool visible, rendering, scrollToEnd;
         float nextIncoming = -1, toastUntil;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
@@ -67,18 +75,17 @@ namespace SwarmPrototype
             scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.Expand;
             safe = MenuUi.Fill(canvas.transform, "Social safe area");
             safe.gameObject.AddComponent<MenuSafeArea>();
-            matchButton = MenuUi.Button(safe, "In-match social", "SOCIAL  /  F6", Vector2.right, new Vector2(-32, 28), new Vector2(230, 48), () => Toggle("Friends"));
             canvas.SetActive(false);
         }
+
+        // ---- Public surface --------------------------------------------------------------------
 
         public void SetContext(bool inHome, bool show = true)
         {
             Close();
             visible = show;
             canvas.SetActive(show);
-            matchButton.gameObject.SetActive(show && !inHome);
             nextIncoming = show ? Time.unscaledTime + 8 : -1;
-            RefreshBadge();
         }
 
         public void Toggle(string tab)
@@ -95,16 +102,18 @@ namespace SwarmPrototype
             if (tab == "Chat" && !Data.CanChat(SelectedThread)) SelectedThread = SocialDemoState.DirectThread(Data.Friends[0]);
             rendering = true;
             if (tab == "Chat") Data.MarkRead(SelectedThread);
+            if (tab == "Clan" && Data.CurrentClan != null) Data.MarkRead(Data.CurrentClan.Thread);
             rendering = false;
             Rebuild();
         }
 
+        // Direct threads open the chat view; the clan thread lives on the Clan tab.
         public void OpenChat(string thread)
         {
             if (!Data.CanChat(thread)) return;
             DismissNotice();
             SelectedThread = thread;
-            Open("Chat");
+            Open(thread.StartsWith("clan:") ? "Clan" : "Chat");
         }
 
         public void Close()
@@ -114,16 +123,14 @@ namespace SwarmPrototype
                 EventSystem.current.SetSelectedGameObject(previousSelection != null && previousSelection.activeInHierarchy ? previousSelection : null);
         }
 
+        public void SimulateIncoming() => Receive(SelectedThread, SelectedThread.StartsWith("clan:") ? "Rowan" : Data.ThreadName(SelectedThread), "Nice hold at the north entrance. Up for another round?");
+
+        // ---- Frame -----------------------------------------------------------------------------
+
         void OnChanged()
         {
-            RefreshBadge();
             Changed?.Invoke();
             if (panel != null && !rendering) Rebuild();
-        }
-
-        void RefreshBadge()
-        {
-            matchButton.GetComponentInChildren<TMP_Text>().text = "SOCIAL" + (Data.Attention > 0 ? " (" + Data.Attention + ")" : "") + "  /  F6";
         }
 
         void Rebuild()
@@ -131,75 +138,122 @@ namespace SwarmPrototype
             string restore = IsTyping ? EventSystem.current.currentSelectedGameObject.name : null;
             rendering = true;
             Remove(panel);
-            panel = MenuUi.Rect(safe, "Social " + view, new Vector2(1, 0.5f), new Vector2(-42, 0), new Vector2(460, 700));
-            MenuUi.Image(panel, MenuUi.Panel, true).raycastTarget = true;
-            MenuUi.Label(panel, "SOCIAL DEMO  /  LOCAL ONLY", new Vector2(30, -24), new Vector2(360, 24), MenuUi.Gold);
-            Text(panel, "Your people.", 30, MenuUi.Paper, 30, 62, 350, 44, true);
-            var close = MenuUi.Button(panel, "Close social", "X", Vector2.one, new Vector2(-16, -18), new Vector2(36, 36), Close);
-            string[] tabs = { "Friends", "Clan", "Chat" };
-            for (int i = 0; i < tabs.Length; i++)
-            {
-                string tab = tabs[i];
-                string label = tab.ToUpperInvariant();
-                if (tab == "Friends" && Data.Requests.Count > 0) label += " (" + Data.Requests.Count + ")";
-                if (tab == "Chat" && Data.Unread > 0) label += " (" + Data.Unread + ")";
-                MenuUi.Button(panel, tab + " channel", label, Vector2.up, new Vector2(30 + i * 136, -132), new Vector2(128, 44), () => Open(tab), view == tab);
-            }
-            MenuUi.Line(panel, new Vector2(30, -193), 400);
-            var body = MenuUi.Rect(panel, "Social content", Vector2.up, new Vector2(30, -215), new Vector2(400, 425));
+            panel = Panel(safe, "Social " + view, 18, HubTheme.Rgba(14, 30, 36, 0.97f), HubTheme.PanelBorderBright);
+            panel.anchorMin = panel.anchorMax = new Vector2(1, 0);
+            panel.pivot = new Vector2(1, 0);
+            panel.anchoredPosition = new Vector2(-Edge, AboveButtons);
+            panel.sizeDelta = new Vector2(PanelWidth, PanelHeight);
+            panel.GetComponent<Image>().raycastTarget = true;
+            var column = panel.gameObject.AddComponent<VerticalLayoutGroup>();
+            column.childControlWidth = column.childControlHeight = true;
+            column.childForceExpandWidth = true; column.childForceExpandHeight = false;
+
+            bool chat = view == "Chat";
+            if (chat) ChatHeader(panel); else TabHeader(panel);
+            Rule(panel, "Header rule", HubTheme.PanelBorderBright);
+
+            var body = Column(panel, "Social content", 0);
+            Size(body, flexHeight: 1, minHeight: 0);
             switch (view)
             {
                 case "Friends": Friends(body); break;
-                case "Clan": Clan(body); break;
+                case "Clan": if (Data.CurrentClan != null) ClanHome(body); else ClanBrowser(body); break;
                 case "Create": CreateClan(body); break;
                 case "Leave": LeaveClan(body); break;
-                case "Conversations": Conversations(body); break;
-                default: Chat(body); break;
+                default: Conversation(body, SelectedThread); break;
             }
-            Text(panel, "Simulated players. Resets when you exit Play.", 12, MenuUi.Muted, 30, 662, 400, 22);
+
             if (EventSystem.current != null)
             {
                 var input = panel.GetComponentsInChildren<TMP_InputField>().FirstOrDefault(f => f.name == restore);
-                EventSystem.current.SetSelectedGameObject(input != null ? input.gameObject : close.gameObject);
+                EventSystem.current.SetSelectedGameObject(input != null ? input.gameObject : panel.gameObject);
                 if (input != null) { input.ActivateInputField(); input.MoveTextEnd(false); }
             }
             rendering = false;
         }
 
-        void Friends(RectTransform body)
+        void TabHeader(Transform parent)
         {
-            var content = Scroll(body, "Friends list", 425, out _);
-            Input(content, "Friend name", "Player name", friendDraft, 0, 0, 280, 44, 24, value => friendDraft = value);
-            MenuUi.Button(content, "Add friend", "ADD", Vector2.up, new Vector2(290, 0), new Vector2(110, 44), RequestFriend);
-            Text(content, status.Length > 0 ? status : "Try adding Bram, or accept a request below.", 14, MenuUi.Muted, 0, 54, 400, 42);
-            float y = 110;
-            MenuUi.Label(content, "REQUESTS  /  " + Data.Requests.Count, new Vector2(0, -y), new Vector2(400, 22)); y += 36;
-            if (Data.Requests.Count == 0) { Text(content, "All caught up.", 15, MenuUi.Muted, 0, y, 400, 30); y += 42; }
-            foreach (string person in Data.Requests.ToArray())
+            var header = Row(parent, "Header", 8, Pad(12, 14, 10, 12), TextAnchor.MiddleLeft, false, false);
+            var tabs = Row(header, "Tabs", 4, Pad(4, 4), TextAnchor.MiddleLeft, false, false);
+            Background(tabs, HubTheme.Track, 12);
+            Tab(tabs, "Friends", Data.Requests.Count + Data.Friends.Sum(f => Data.UnreadFor(SocialDemoState.DirectThread(f))));
+            Tab(tabs, "Clan", Data.CurrentClan != null ? Data.UnreadFor(Data.CurrentClan.Thread) : 0);
+            Spacer(header);
+            IconButton(header, "Close social", "close", Close, 40, HubTheme.Secondary, null, 16, 10);
+        }
+
+        void Tab(Transform tabs, string tab, int badge)
+        {
+            bool active = view == tab || (tab == "Clan" && (view == "Create" || view == "Leave"));
+            var button = Button(tabs, tab + " channel", tab, active ? ButtonStyle.SegmentActive : ButtonStyle.Segment, () => Open(tab),
+                new Spec { Height = 40, PaddingX = 14, Radius = 9, FontSize = 15, Tracking = 0, Face = HubTheme.Face.BodyBold, Gap = 8 });
+            if (badge > 0) Badge(button.transform, badge);
+        }
+
+        void ChatHeader(Transform parent)
+        {
+            string name = Data.ThreadName(SelectedThread);
+            var header = Row(parent, "Header", 10, Pad(12, 12, 10, 12), TextAnchor.MiddleLeft, false, false);
+            IconButton(header, "Back to friends", "chevron-left", () => Open("Friends"), 36, HubTheme.Secondary, null, 16, 9);
+            Avatar(header, "Avatar", 40, 20, AvatarColor(name), Initial(name), 16, HubTheme.Cream, null, HubTheme.Online, 11, 2);
+            var lines = Column(header, "Lines", 1, null, TextAnchor.MiddleLeft);
+            Size(lines, flexWidth: 1, minWidth: 0);
+            HubTheme.Text(lines, "Name", name, 16, HubTheme.Cream, HubTheme.Face.BodyBold, 0, TextAlignmentOptions.MidlineLeft, false);
+            HubTheme.Text(lines, "Presence", "Online", 13, HubTheme.Secondary, HubTheme.Face.Body, 0, TextAlignmentOptions.MidlineLeft, false);
+            IconButton(header, "Close social", "close", Close, 40, HubTheme.Secondary, null, 16, 10);
+        }
+
+        static void Footer(Transform parent, string text)
+        {
+            Rule(parent, "Footer rule", HubTheme.PanelBorderBright);
+            var foot = Row(parent, "Footer", 0, Pad(14, 14), TextAnchor.MiddleCenter, false, false);
+            HubTheme.Text(foot, "Note", text, 13, HubTheme.Tertiary, HubTheme.Face.Body, 0, TextAlignmentOptions.Center, false);
+        }
+
+        // ---- Friends ---------------------------------------------------------------------------
+
+        void Friends(Transform body)
+        {
+            var list = ScrollList(body, "Friends list", out _, 8, Pad(14, 14, 14, 10));
+
+            var field = Input(list, "Friend name", "Add by player name", friendDraft, v => friendDraft = v, _ => RequestFriend(), 48, 12, null, null, "search", 24);
+            field.textViewport.offsetMax = new Vector2(-56, 0);
+            var add = IconButton(field.transform, "Add friend", "plus", RequestFriend, 40, HubTheme.OnGold, HubTheme.Gold, 18, 10);
+            Place((RectTransform)add.transform, new Vector2(1, 0.5f), new Vector2(-4 - 20, 0));
+            if (status.Length > 0) HubTheme.Text(list, "Status", status, 13, HubTheme.Online);
+
+            if (Data.Requests.Count > 0 || Data.Outgoing.Count > 0)
             {
-                var row = Card(content, person + " request", y, 72);
-                Person(row, person, "Wants to be your friend", 195);
-                MenuUi.Button(row, "Accept " + person, "ACCEPT", Vector2.up, new Vector2(205, -16), new Vector2(100, 40), () => { Data.Accept(person); Notice("Friend added", person + " is now on your friends list.", () => OpenChat(SocialDemoState.DirectThread(person))); });
-                MenuUi.Button(row, "Decline " + person, "NO", Vector2.up, new Vector2(315, -16), new Vector2(72, 40), () => Data.Decline(person));
-                y += 84;
+                SectionLabel(list, "REQUESTS", Data.Requests.Count + Data.Outgoing.Count, 10);
+                foreach (string person in Data.Requests.ToArray())
+                {
+                    var row = PersonRow(list, person + " request", person, "Wants to be friends", null);
+                    IconButton(row, "Accept " + person, "check", () =>
+                    {
+                        Data.Accept(person);
+                        Notice("Friend added", person + " is now on your friends list.", () => OpenChat(SocialDemoState.DirectThread(person)));
+                    }, 44, HubTheme.OnGold, HubTheme.Online, 18, 12);
+                    var decline = IconButton(row, "Decline " + person, "close", () => Data.Decline(person), 44, HubTheme.Secondary, null, 16, 12);
+                    Border((RectTransform)decline.transform, HubTheme.InputBorder, 12);
+                }
+                foreach (string person in Data.Outgoing.ToArray())
+                    PersonRow(list, person + " pending", person, "Request sent · waiting for demo reply", null);
             }
-            foreach (string person in Data.Outgoing.ToArray())
-            {
-                var row = Card(content, person + " pending", y, 64);
-                Person(row, person, "Request sent · waiting for demo reply", 365);
-                y += 76;
-            }
-            y += 8;
-            MenuUi.Label(content, "FRIENDS  /  " + Data.Friends.Count, new Vector2(0, -y), new Vector2(400, 22)); y += 36;
+
+            SectionLabel(list, "FRIENDS", Data.Friends.Count, 14);
             foreach (string person in Data.Friends)
             {
-                var row = Card(content, person + " friend", y, 72);
-                int count = Data.UnreadFor(SocialDemoState.DirectThread(person));
-                Person(row, person, count > 0 ? count + " unread · Demo player" : "Available · Demo player", 260);
-                MenuUi.Button(row, "Message " + person, "MESSAGE", Vector2.up, new Vector2(275, -16), new Vector2(112, 40), () => OpenChat(SocialDemoState.DirectThread(person)));
-                y += 84;
+                string thread = SocialDemoState.DirectThread(person);
+                int unread = Data.UnreadFor(thread);
+                var last = Data.History(thread).LastOrDefault();
+                var row = PersonRow(list, person + " friend", person, last != null ? last.Body : "Online", HubTheme.Online);
+                if (unread > 0) { Background(row, HubTheme.RowWash, 12).raycastTarget = true; Badge(row, unread); }
+                else Background(row, Color.clear, 12).raycastTarget = true;
+                Icon(row, "Chevron", "chevron-right", 16, HubTheme.Faint);
+                Clickable(row, () => OpenChat(thread));
             }
-            SizeContent(content, y);
+            Footer(body, "Demo players · resets when you leave Play");
         }
 
         void RequestFriend()
@@ -218,124 +272,159 @@ namespace SwarmPrototype
             if (Data.AcceptOutgoing(name)) Notice("Friend request accepted", name + " accepted your request.", () => OpenChat(SocialDemoState.DirectThread(name)));
         }
 
-        void Clan(RectTransform body)
+        // ---- Clan ------------------------------------------------------------------------------
+
+        void ClanBrowser(Transform body)
         {
-            if (Data.CurrentClan != null)
+            var list = ScrollList(body, "Clan browser", out _, 8, Pad(14, 14, 14, 10));
+            var search = Row(list, "Search row", 10, null, TextAnchor.MiddleLeft);
+            Input(search, "Clan search", "Find a clan", clanSearch, v => { clanSearch = v; Rebuild(); }, null, 48, 12, null, null, "search", 24);
+            Button(search, "Create clan", "Create", ButtonStyle.Gold, () => { status = ""; view = "Create"; Rebuild(); },
+                new Spec { Height = 48, PaddingX = 16, Radius = 12, FontSize = 15, Tracking = 0, Face = HubTheme.Face.BodyBold, Icon = "plus", IconSize = 16, Gap = 6 });
+            if (status.Length > 0) HubTheme.Text(list, "Status", status, 13, HubTheme.Online);
+
+            SectionLabel(list, "OPEN CLANS", -1, 10);
+            string filter = clanSearch.Trim();
+            var shown = Data.Clans.Where(c => filter.Length == 0 || c.Name.IndexOf(filter, StringComparison.OrdinalIgnoreCase) >= 0 || c.Tag.IndexOf(filter, StringComparison.OrdinalIgnoreCase) >= 0).ToArray();
+            if (shown.Length == 0) HubTheme.Text(list, "Empty", "No clan matches that. Create one?", 13, HubTheme.Tertiary);
+            foreach (var clan in shown)
             {
-                var clan = Data.CurrentClan;
-                MenuUi.Label(body, "[" + clan.Tag + "]  /  " + (clan.Created ? "LEADER" : "MEMBER"), Vector2.zero, new Vector2(400, 24), MenuUi.Gold);
-                Text(body, clan.Name, 32, MenuUi.Paper, 0, 40, 400, 52, true);
-                Text(body, clan.Description, 17, MenuUi.Muted, 0, 105, 400, 64);
-                MenuUi.Label(body, "MEMBERS  /  " + (clan.Members + 1), new Vector2(0, -192), new Vector2(400, 24));
-                Text(body, Data.PlayerName + (clan.Created ? " (you) · Leader" : " (you) · Member\nMira · Leader\nRowan · Officer\n+ " + (clan.Members - 2) + " demo members"), 17, MenuUi.Paper, 0, 230, 400, 100);
-                MenuUi.Button(body, "Open clan chat", "CLAN CHAT", Vector2.up, new Vector2(0, -351), new Vector2(242, 52), () => OpenChat(clan.Thread));
-                MenuUi.Button(body, "Leave clan", "LEAVE", Vector2.up, new Vector2(254, -351), new Vector2(146, 52), () => { view = "Leave"; Rebuild(); });
-                return;
-            }
-            var content = Scroll(body, "Clan browser", 425, out _);
-            Text(content, "Find your people.", 25, MenuUi.Paper, 0, 0, 250, 40, true);
-            MenuUi.Button(content, "Create clan", "CREATE", Vector2.up, new Vector2(265, 0), new Vector2(135, 40), () => { status = ""; view = "Create"; Rebuild(); });
-            Text(content, status.Length > 0 ? status : "Join a demo clan, or start your own.", 15, MenuUi.Muted, 0, 48, 400, 42);
-            float y = 110;
-            foreach (var clan in Data.Clans.ToArray())
-            {
-                var row = Card(content, clan.Name + " clan", y, 104);
-                Text(row, "[" + clan.Tag + "] " + clan.Name, 20, MenuUi.Paper, 16, 10, 270, 32, true);
-                Text(row, clan.Members + " members · Open", 14, MenuUi.Teal, 16, 48, 260, 26);
-                MenuUi.Button(row, "Join " + clan.Id, "JOIN", Vector2.up, new Vector2(294, -30), new Vector2(92, 44), () =>
+                var row = Row(list, clan.Name + " clan", 12, Pad(10, 0), TextAnchor.MiddleLeft, false, false);
+                TagBadge(row, clan.Tag);
+                var lines = Column(row, "Lines", 2, null, TextAnchor.MiddleLeft);
+                Size(lines, flexWidth: 1, minWidth: 0);
+                var title = Row(lines, "Title", 8, null, TextAnchor.LowerLeft, false, false);
+                HubTheme.Text(title, "Name", clan.Name, 16, HubTheme.Cream, HubTheme.Face.BodyBold, 0, TextAlignmentOptions.BottomLeft, false);
+                HubTheme.Text(title, "Members", clan.Members + " members", 13, HubTheme.Secondary, HubTheme.Face.Body, 0, TextAlignmentOptions.BottomLeft, false);
+                var about = HubTheme.Text(lines, "About", clan.Description, 13, HubTheme.Secondary, HubTheme.Face.Body, 0, TextAlignmentOptions.MidlineLeft, false);
+                about.overflowMode = TextOverflowModes.Ellipsis;
+                var join = Button(row, "Join " + clan.Id, "Join", ButtonStyle.Ghost, () =>
                 {
                     status = Data.Join(clan.Id) ?? "";
                     Rebuild();
                     if (status.Length == 0) Notice("Clan joined", "Welcome to [" + clan.Tag + "] " + clan.Name + ".", () => Open("Clan"));
-                });
-                y += 116;
+                }, new Spec { Height = 44, PaddingX = 18, Radius = 12, FontSize = 15, Tracking = 0, Face = HubTheme.Face.BodyBold });
+                var tint = join.GetComponent<HubHover>();
+                tint.NormalText = HubTheme.Gold; tint.HoverText = HubTheme.GoldHover; tint.Label.color = HubTheme.Gold;
+                tint.NormalBorder = HubTheme.Alpha(HubTheme.Gold, 0.55f); tint.HoverBorder = HubTheme.Gold; if (tint.Border != null) tint.Border.color = tint.NormalBorder;
             }
-            SizeContent(content, y);
+            Footer(body, "Demo clans · resets when you leave Play");
         }
 
-        void CreateClan(RectTransform body)
-        {
-            Text(body, "Make it yours.", 28, MenuUi.Paper, 0, 0, 400, 44, true);
-            MenuUi.Label(body, "CLAN NAME", new Vector2(0, -64), new Vector2(400, 24));
-            Input(body, "Clan name", "e.g. The Small Council", clanName, 0, 100, 400, 48, 24, value => clanName = value);
-            MenuUi.Label(body, "CLAN TAG", new Vector2(0, -172), new Vector2(400, 24));
-            Input(body, "Clan tag", "2–4 letters", clanTag, 0, 208, 180, 48, 4, value => clanTag = value);
-            Text(body, status.Length > 0 ? status : "You'll be the leader. Creating a demo clan is free and only changes this local preview.", 16, MenuUi.Muted, 0, 282, 400, 70);
-            MenuUi.Button(body, "Confirm create clan", "CREATE", Vector2.up, new Vector2(0, -370), new Vector2(240, 52), () =>
-            {
-                rendering = true; status = Data.Create(clanName, clanTag); rendering = false;
-                if (status == null) { view = "Clan"; status = ""; Notice("Clan created", "Your people have a new home.", () => Open("Clan")); }
-                Rebuild();
-            }, true);
-            MenuUi.Button(body, "Cancel create clan", "BACK", Vector2.up, new Vector2(252, -370), new Vector2(148, 52), () => Open("Clan"));
-        }
-
-        void LeaveClan(RectTransform body)
+        void ClanHome(Transform body)
         {
             var clan = Data.CurrentClan;
-            Text(body, "Leave " + clan.Name + "?", 28, MenuUi.Paper, 0, 0, 400, 90, true);
-            Text(body, clan.Created ? "You're this demo clan's only member. Leaving closes the clan. You can create another anytime."
-                : "You'll lose access to this clan's chat. You can rejoin from the clan browser.", 18, MenuUi.Muted, 0, 120, 400, 130);
-            MenuUi.Button(body, "Confirm leave clan", "LEAVE CLAN", Vector2.up, new Vector2(0, -304), new Vector2(240, 54), () =>
+            var head = Column(body, "Clan head", 10, Pad(12, 14, 14, 12));
+            var title = Row(head, "Title row", 12, null, TextAnchor.MiddleLeft, false, false);
+            TagBadge(title, clan.Tag);
+            var lines = Column(title, "Lines", 2, null, TextAnchor.MiddleLeft);
+            Size(lines, flexWidth: 1, minWidth: 0);
+            HubTheme.Text(lines, "Name", clan.Name, 22, HubTheme.Cream, HubTheme.Face.WideHeavy, 0, TextAlignmentOptions.MidlineLeft, false);
+            var about = HubTheme.Text(lines, "About", clan.Description, 13, HubTheme.Secondary, HubTheme.Face.Body, 0, TextAlignmentOptions.MidlineLeft, false);
+            about.overflowMode = TextOverflowModes.Ellipsis;
+            IconButton(title, "Clan options", "dots", () => { view = "Leave"; Rebuild(); }, 36, HubTheme.Secondary, null, 18, 9);
+
+            var members = Row(head, "Members card", 12, Pad(8, 10, 12, 10), TextAnchor.MiddleLeft, false, false);
+            Background(members, HubTheme.Track, 12);
+            var stack = Row(members, "Stack", -10, null, TextAnchor.MiddleLeft, false, false);
+            Avatar(stack, "Member Mira", 36, 18, AvatarColor("Mira"), "M", 14, HubTheme.Cream, HubTheme.DotRing);
+            Avatar(stack, "Member Rowan", 36, 18, AvatarColor("Rowan"), "R", 14, HubTheme.Cream, HubTheme.DotRing);
+            int others = Mathf.Max(0, clan.Members - 2);
+            Avatar(stack, "More members", 36, 18, HubTheme.Segment, "+" + others, 12, HubTheme.Cream, HubTheme.DotRing);
+            var count = Row(members, "Count", 6, null, TextAnchor.MiddleLeft, false, false);
+            HubTheme.Text(count, "Label", "Members", 15, HubTheme.Cream, HubTheme.Face.BodyBold, 0, TextAlignmentOptions.MidlineLeft, false);
+            HubTheme.Text(count, "Number", (clan.Members + 1).ToString(), 15, HubTheme.Secondary, HubTheme.Face.Body, 0, TextAlignmentOptions.MidlineLeft, false);
+            Spacer(members);
+            HubTheme.Text(members, "Role", "You · " + (clan.Created ? "Leader" : "Member"), 14, HubTheme.Secondary, HubTheme.Face.Body, 0, TextAlignmentOptions.MidlineRight, false);
+            Icon(members, "Chevron", "chevron-right", 16, HubTheme.Faint);
+            Rule(body, "Head rule", HubTheme.PanelBorderBright);
+
+            Conversation(body, clan.Thread);
+        }
+
+        void CreateClan(Transform body)
+        {
+            var form = Column(body, "Create form", 12, Pad(16, 14, 14, 14));
+            HubTheme.Text(form, "Title", "Make it yours.", 22, HubTheme.Cream, HubTheme.Face.WideHeavy, 0, TextAlignmentOptions.MidlineLeft, false);
+            HubTheme.Label(form, "CLAN NAME");
+            Input(form, "Clan name", "e.g. The Small Council", clanName, v => clanName = v, null, 48, 12, null, null, null, 24);
+            HubTheme.Label(form, "CLAN TAG");
+            Input(form, "Clan tag", "2–4 letters", clanTag, v => clanTag = v, null, 48, 12, null, null, null, 4);
+            HubTheme.Text(form, "Note", status.Length > 0 ? status : "You'll be the leader. A demo clan only changes this local preview.", 13, status.Length > 0 ? HubTheme.DangerText : HubTheme.Tertiary);
+            var actions = Row(form, "Actions", 8, null, TextAnchor.MiddleLeft);
+            Button(actions, "Confirm create clan", "Create clan", ButtonStyle.Gold, () =>
+            {
+                rendering = true; status = Data.Create(clanName, clanTag) ?? ""; rendering = false;
+                if (status.Length == 0) { view = "Clan"; Notice("Clan created", "Your people have a new home.", () => Open("Clan")); }
+                Rebuild();
+            }, new Spec { Height = 48, Radius = 12, FontSize = 15, Tracking = 0, Face = HubTheme.Face.BodyBold, FlexWidth = 1 });
+            Button(actions, "Cancel create clan", "Back", ButtonStyle.Ghost, () => Open("Clan"),
+                new Spec { Height = 48, PaddingX = 20, Radius = 12, FontSize = 15, Tracking = 0, Face = HubTheme.Face.BodyBold });
+        }
+
+        void LeaveClan(Transform body)
+        {
+            var clan = Data.CurrentClan;
+            var form = Column(body, "Leave form", 12, Pad(16, 14, 14, 14));
+            HubTheme.Text(form, "Title", "Leave " + clan.Name + "?", 22, HubTheme.Cream, HubTheme.Face.WideHeavy);
+            HubTheme.Text(form, "Note", clan.Created ? "You're this demo clan's only member. Leaving closes the clan. You can create another anytime."
+                : "You'll lose access to this clan's chat. You can rejoin from the clan browser.", 14, HubTheme.Secondary);
+            var actions = Row(form, "Actions", 8, null, TextAnchor.MiddleLeft);
+            Button(actions, "Confirm leave clan", "Leave clan", ButtonStyle.Danger, () =>
             {
                 string name = clan.Name;
                 rendering = true; Data.Leave(); rendering = false;
                 view = "Clan"; status = ""; Rebuild();
                 Notice("Clan left", "You left " + name + ".", () => Open("Clan"));
-            }, true);
-            MenuUi.Button(body, "Cancel leave clan", "STAY", Vector2.up, new Vector2(252, -304), new Vector2(148, 54), () => Open("Clan"));
+            }, new Spec { Height = 48, Radius = 12, FontSize = 15, Tracking = 0, Face = HubTheme.Face.BodyBold, FlexWidth = 1 });
+            Button(actions, "Cancel leave clan", "Stay", ButtonStyle.Ghost, () => Open("Clan"),
+                new Spec { Height = 48, PaddingX = 20, Radius = 12, FontSize = 15, Tracking = 0, Face = HubTheme.Face.BodyBold });
         }
 
-        void Conversations(RectTransform body)
+        // ---- Conversation ----------------------------------------------------------------------
+
+        void Conversation(Transform body, string thread)
         {
-            var content = Scroll(body, "Conversations", 425, out _);
-            float y = 0;
-            foreach (string person in Data.Friends)
+            bool clan = thread.StartsWith("clan:");
+            var messages = ScrollList(body, "Messages", out chatScroll, 8, Pad(12, 14, 14, 12));
+            // Pin the column to the bottom so short threads sit above the composer like the mock.
+            messages.anchorMin = new Vector2(0, 0); messages.anchorMax = new Vector2(1, 0); messages.pivot = new Vector2(0.5f, 0);
+            messages.anchoredPosition = Vector2.zero;
+            foreach (var message in Data.History(thread))
             {
-                var row = Card(content, "Conversation " + person, y, 76);
-                Person(row, person, Data.UnreadFor(SocialDemoState.DirectThread(person)) + " unread · Demo player", 260);
-                MenuUi.Button(row, "Chat with " + person, "OPEN", Vector2.up, new Vector2(280, -17), new Vector2(105, 42), () => OpenChat(SocialDemoState.DirectThread(person)));
-                y += 88;
+                var block = Column(messages, "Message", 4, null, message.Mine ? TextAnchor.UpperRight : TextAnchor.UpperLeft, false);
+                if (clan && !message.Mine)
+                    HubTheme.Text(block, "Author", message.Author + " · " + Role(message.Author), 13, HubTheme.Secondary, HubTheme.Face.Body, 0, TextAlignmentOptions.MidlineLeft, false);
+                Bubble(block, message.Body, message.Mine);
             }
-            if (Data.CurrentClan != null)
-                MenuUi.Button(content, "Clan conversation", "[" + Data.CurrentClan.Tag + "] CLAN CHAT", Vector2.up, new Vector2(0, -y), new Vector2(400, 52), () => OpenChat(Data.CurrentClan.Thread));
-            SizeContent(content, y + 66);
+            scrollToEnd = true;
+
+            Rule(body, "Composer rule", HubTheme.PanelBorderBright);
+            var composer = Row(body, "Composer", 8, Pad(12, 14, 14, 12), TextAnchor.MiddleLeft);
+            string draft = drafts.TryGetValue(thread, out string saved) ? saved : "";
+            var field = Input(composer, "Message draft", "Message " + Data.ThreadName(thread).Replace("[" + (Data.CurrentClan?.Tag ?? "") + "] ", ""), draft,
+                v => drafts[thread] = v, _ => Send(thread), 52, 12, null, null, null, 280);
+            field.richText = false;
+            IconButton(composer, "Send message", "arrow-up", () => Send(thread), 52, HubTheme.OnGold, HubTheme.Gold, 20, 12);
+            if (status.Length > 0) HubTheme.Text(body, "Status", status, 13, HubTheme.DangerText);
         }
 
-        void Chat(RectTransform body)
+        static void Bubble(Transform parent, string text, bool mine)
         {
-            Text(body, Data.ThreadName(SelectedThread), 22, MenuUi.Paper, 0, 0, 265, 36, true);
-            MenuUi.Button(body, "Change conversation", "INBOX", Vector2.up, new Vector2(288, 0), new Vector2(112, 36), () => { view = "Conversations"; Rebuild(); });
-            var logRoot = MenuUi.Rect(body, "Conversation history", Vector2.up, new Vector2(0, -53), new Vector2(400, 245));
-            var content = Scroll(logRoot, "Messages", 245, out var scroll);
-            float y = 0;
-            foreach (var message in Data.History(SelectedThread))
-            {
-                var row = Card(content, "Chat bubble", y, 80);
-                row.GetComponent<Image>().color = message.Mine ? MenuUi.Hex("28554F") : MenuUi.Ink;
-                Text(row, message.Author + (message.Mine ? "" : "  ·  DEMO"), 12, message.Mine ? MenuUi.Gold : MenuUi.Teal, 14, 9, 370, 20, true);
-                var text = Text(row, message.Body, 16, MenuUi.Paper, 14, 36, 370, 100);
-                float height = Mathf.Max(70, text.GetPreferredValues(message.Body, 370, 0).y + 52);
-                text.rectTransform.sizeDelta = new Vector2(370, height - 45);
-                row.sizeDelta = new Vector2(400, height);
-                y += height + 10;
-            }
-            SizeContent(content, y);
-            Canvas.ForceUpdateCanvases(); scroll.verticalNormalizedPosition = 0;
-            string draft = drafts.TryGetValue(SelectedThread, out string saved) ? saved : "";
-            var input = Input(body, "Message draft", "Write a message...", draft, 0, 314, 298, 50, 280, value => drafts[SelectedThread] = value);
-            input.onSubmit.AddListener(_ => Send());
-            MenuUi.Button(body, "Send message", "SEND", Vector2.up, new Vector2(310, -314), new Vector2(90, 50), Send);
-            if (status.Length > 0) Text(body, status, 13, MenuUi.Gold, 0, 370, 400, 25);
-            MenuUi.Button(body, "Simulate incoming", "+ DEMO MESSAGE", Vector2.up, new Vector2(0, -390), new Vector2(230, 32), SimulateIncoming);
+            const float maxWidth = 280;
+            var bubble = Column(parent, "Bubble", 0, Pad(10, 14));
+            Background(bubble, mine ? HubTheme.Gold : HubTheme.Hex("1F3A3C"), 14);
+            var label = HubTheme.Text(bubble, "Text", text, 15, mine ? HubTheme.OnGold : HubTheme.Cream);
+            label.lineSpacing = 8;
+            float width = Mathf.Min(maxWidth, label.GetPreferredValues(text, maxWidth, 0).x + 2);
+            Size(bubble, width: width + 28, minWidth: width + 28);
         }
 
-        void Send()
+        void Send(string thread)
         {
-            string thread = SelectedThread;
             drafts.TryGetValue(thread, out string draft);
-            rendering = true; status = Data.Send(thread, draft); rendering = false;
-            if (status == null) { drafts[thread] = ""; status = ""; StartCoroutine(ReplyLater(thread)); }
+            rendering = true; status = Data.Send(thread, draft) ?? ""; rendering = false;
+            if (status.Length == 0) { drafts[thread] = ""; StartCoroutine(ReplyLater(thread)); }
             Rebuild();
         }
         IEnumerator ReplyLater(string thread)
@@ -343,21 +432,31 @@ namespace SwarmPrototype
             yield return new WaitForSecondsRealtime(1.5f);
             Receive(thread, thread.StartsWith("clan:") ? "Mira" : Data.ThreadName(thread), "Sounds good! I'll meet you after this match.");
         }
-        public void SimulateIncoming() => Receive(SelectedThread, SelectedThread.StartsWith("clan:") ? "Rowan" : Data.ThreadName(SelectedThread), "Nice hold at the north entrance. Up for another round?");
         void Receive(string thread, string author, string body)
         {
-            bool reading = panel != null && view == "Chat" && SelectedThread == thread;
+            bool reading = panel != null && ((view == "Chat" && SelectedThread == thread) || (view == "Clan" && Data.CurrentClan != null && Data.CurrentClan.Thread == thread));
             if (Data.Receive(thread, author, body, reading) && !reading)
-                Notice(author + " messaged you · DEMO", body, () => OpenChat(thread));
+                Notice(author + " messaged you", body, () => OpenChat(thread));
         }
+
+        // ---- Notices -----------------------------------------------------------------------------
 
         void Notice(string title, string message, Action clicked)
         {
             Remove(toast);
-            toast = (RectTransform)MenuUi.Button(safe, "Social notification", "", new Vector2(0.5f, 1), new Vector2(0, -106), new Vector2(430, 100), () => { DismissNotice(); clicked(); }).transform;
-            Text(toast, title, 17, MenuUi.Gold, 18, 12, 360, 26, true);
-            Text(toast, message, 15, MenuUi.Paper, 18, 45, 365, 46);
-            MenuUi.Button(toast, "Dismiss notification", "X", Vector2.one, new Vector2(-8, -8), new Vector2(30, 30), DismissNotice);
+            toast = Centered(safe, "Social notification", 420, 70, 0, 900 * 0.5f - 60);
+            Background(toast, HubTheme.Rgba(14, 30, 36, 0.96f), 14, true);
+            Border(toast, HubTheme.PanelBorderBright, 14);
+            var row = Row(toast, "Row", 12, Pad(10, 14, 10, 12), TextAnchor.MiddleLeft, false, false);
+            Stretch(row);
+            Avatar(row, "Avatar", 36, 18, AvatarColor(title), Initial(title), 14, HubTheme.Cream);
+            var lines = Column(row, "Lines", 2, null, TextAnchor.MiddleLeft);
+            Size(lines, flexWidth: 1, minWidth: 0);
+            HubTheme.Text(lines, "Title", title, 13, HubTheme.Gold, HubTheme.Face.BodyBold, 0, TextAlignmentOptions.MidlineLeft, false);
+            var text = HubTheme.Text(lines, "Message", message, 13, HubTheme.Cream, HubTheme.Face.Body, 0, TextAlignmentOptions.MidlineLeft, false);
+            text.overflowMode = TextOverflowModes.Ellipsis;
+            IconButton(row, "Dismiss notification", "close-small", DismissNotice, 28, HubTheme.Faint, null, 12, 7);
+            Clickable(toast, () => { DismissNotice(); clicked(); });
             toastUntil = Time.unscaledTime + 5;
         }
         void DismissNotice() { Remove(toast); toast = null; }
@@ -375,34 +474,74 @@ namespace SwarmPrototype
             }
         }
 
-        static TMP_Text Text(Transform parent, string text, float size, Color color, float x, float y, float width, float height, bool bold = false)
+        void LateUpdate()
         {
-            var label = MenuUi.Text(parent, text, size, color, new Vector2(x, -y), new Vector2(width, height), bold: bold);
-            label.richText = false; return label;
+            if (!scrollToEnd || chatScroll == null) return;
+            scrollToEnd = false;
+            Canvas.ForceUpdateCanvases();
+            chatScroll.verticalNormalizedPosition = 0;
         }
-        static RectTransform Card(Transform parent, string name, float y, float height)
+
+        // ---- Pieces ------------------------------------------------------------------------------
+
+        static void SectionLabel(Transform parent, string text, int count, int topPad)
         {
-            var card = MenuUi.Rect(parent, name, Vector2.up, new Vector2(0, -y), new Vector2(400, height));
-            MenuUi.Image(card, MenuUi.Ink, true); return card;
+            var row = Row(parent, text, 8, Pad(topPad, 2, 0, 2), TextAnchor.MiddleLeft, false, false);
+            HubTheme.Label(row, text, HubTheme.Secondary, 12, 0.14f);
+            if (count >= 0) HubTheme.Label(row, count.ToString(), HubTheme.Gold, 12, 0.1f);
         }
-        static void Person(Transform row, string name, string detail, float width)
+
+        // Avatar, name and detail line; actions go after it. Returns the row.
+        static RectTransform PersonRow(Transform parent, string name, string person, string detail, Color? presence)
         {
-            Text(row, name, 19, MenuUi.Paper, 14, 9, width - 14, 28, true);
-            Text(row, detail, 12, MenuUi.Muted, 14, 40, width - 14, 24);
+            var row = Row(parent, name, 12, Pad(6, 8, 8, 6), TextAnchor.MiddleLeft, false, false);
+            Avatar(row, "Avatar", 44, 22, AvatarColor(person), Initial(person), 17, HubTheme.Cream, null, presence, 12, 2.5f);
+            var lines = Column(row, "Lines", 2, null, TextAnchor.MiddleLeft);
+            Size(lines, flexWidth: 1, minWidth: 0);
+            HubTheme.Text(lines, "Name", person, 16, HubTheme.Cream, HubTheme.Face.BodyBold, 0, TextAlignmentOptions.MidlineLeft, false);
+            var line = HubTheme.Text(lines, "Detail", detail, 13, HubTheme.Secondary, HubTheme.Face.Body, 0, TextAlignmentOptions.MidlineLeft, false);
+            line.overflowMode = TextOverflowModes.Ellipsis;
+            return row;
         }
-        static TMP_InputField Input(Transform parent, string name, string hint, string value, float x, float y, float width, float height, int limit, Action<string> changed)
-            => MenuUi.InputField(parent, name, hint, value, new Vector2(x, -y), new Vector2(width, height), limit, v => changed(v));
-        static RectTransform Scroll(Transform parent, string name, float height, out ScrollRect scroll)
+
+        static void Badge(Transform parent, int count)
         {
-            var viewport = MenuUi.Rect(parent, name, Vector2.up, Vector2.zero, new Vector2(400, height));
-            MenuUi.Image(viewport, new Color(0, 0, 0, 0)).raycastTarget = true;
-            viewport.gameObject.AddComponent<RectMask2D>();
-            scroll = viewport.gameObject.AddComponent<ScrollRect>();
-            scroll.horizontal = false; scroll.vertical = true; scroll.movementType = ScrollRect.MovementType.Clamped; scroll.scrollSensitivity = 28;
-            var content = MenuUi.Rect(viewport, "Scroll content", Vector2.up, Vector2.zero, new Vector2(400, height));
-            scroll.viewport = viewport; scroll.content = content; return content;
+            var disc = Disc(parent, "Badge", 22, HubTheme.Gold);
+            Size(disc, 22, 22, minWidth: 22, minHeight: 22);
+            var label = HubTheme.Text(disc.transform, "Count", count > 99 ? "99+" : count.ToString(), 12, HubTheme.OnGold, HubTheme.Face.BodyBold, 0, TextAlignmentOptions.Center, false);
+            Stretch(label.rectTransform);
         }
-        static void SizeContent(RectTransform content, float height) => content.sizeDelta = new Vector2(400, height);
+
+        static void TagBadge(Transform parent, string tag)
+        {
+            var rect = Rect(parent, "Tag");
+            Size(rect, 72, 44, minWidth: 72, minHeight: 44);
+            Background(rect, HubTheme.Hex("3A452E"), 8);
+            var label = HubTheme.Text(rect, "Text", tag, 13, HubTheme.Gold, HubTheme.Face.WideHeavy, 0.1f, TextAlignmentOptions.Center, false);
+            Stretch(label.rectTransform);
+        }
+
+        static void Clickable(RectTransform rect, Action onClick)
+        {
+            var image = rect.GetComponent<Image>();
+            if (image == null) image = Background(rect, Color.clear, 0, true);
+            image.raycastTarget = true;
+            var button = rect.gameObject.AddComponent<Button>();
+            button.targetGraphic = image;
+            button.transition = Selectable.Transition.None;
+            button.onClick.AddListener(() => onClick());
+        }
+
+        static string Initial(string name) => string.IsNullOrEmpty(name) ? "?" : name.Substring(0, 1).ToUpperInvariant();
+        static Color AvatarColor(string name)
+        {
+            string[] palette = { "5B7D5A", "6B5B8E", "4A6E8E", "7A5A48", "5A6E3A", "8E5B6B" };
+            int hash = 0;
+            foreach (char c in name ?? "") hash = hash * 31 + c;
+            return HubTheme.Hex(palette[Mathf.Abs(hash) % palette.Length]);
+        }
+        string Role(string author) => author == "Mira" ? "Leader" : author == "Rowan" ? "Officer" : author == "Clan notice" ? "" : "Member";
+
         static void Remove(RectTransform rect) { if (rect != null) { rect.gameObject.SetActive(false); Destroy(rect.gameObject); } }
         void UpdatePlayerName() => Data.RenamePlayer(LocalPlayerProfile.DisplayName);
         void OnDestroy() { LocalPlayerProfile.Changed -= UpdatePlayerName; if (Data != null) Data.Changed -= OnChanged; if (instance == this) instance = null; }

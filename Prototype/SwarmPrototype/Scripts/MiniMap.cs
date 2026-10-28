@@ -8,7 +8,7 @@ namespace SwarmPrototype
     public class MiniMap
     {
         const float Size = 200f;
-        const float Pad = 8f;
+        const float Pad = 4f;
         const float Edge = 14f;
 
         public Rect Panel { get; private set; }
@@ -93,7 +93,7 @@ namespace SwarmPrototype
             if (layout == null) return;
             Panel = new Rect(Edge, UiSkin.Height - Edge - Size - Pad * 2f, Size + Pad * 2f, Size + Pad * 2f);
             Map = new Rect(Panel.x + Pad, Panel.y + Pad, Size, Size);
-            UiSkin.Panel(Panel, 18f);
+            UiSkin.Panel(Panel, 12f);
             layout.DrawPreview(Map, team => bases == null || (team < bases.Length && bases[team] != null && !bases[team].IsDead));
 
             // Dead camps show as empty circles.

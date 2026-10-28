@@ -4,7 +4,7 @@ using UnityEngine;
 namespace SwarmPrototype
 {
     // The match HUD chrome: resource pill top-left, match clock top-centre, help /
-    // social / menu buttons top-right, the action bar at the bottom (units, Home,
+    // social / menu buttons bottom-right, the action bar at the bottom (units, Home,
     // Next enemy, Shop) and the help card. Hovering a resource explains where it
     // comes from. Toasts stack under the resource pill. The standings table is
     // ScoreBoard, the minimap is MiniMap.
@@ -123,15 +123,16 @@ namespace SwarmPrototype
 
         void DrawTopRight()
         {
+            // Bottom-right, so the social panel can stand above them (see SocialOverlay).
             const float size = 44f, gap = 8f;
-            Buttons = new Rect(UiSkin.Width - Edge - size * 3f - gap * 2f, Edge, size * 3f + gap * 2f, size);
+            Buttons = new Rect(UiSkin.Width - Edge - size * 3f - gap * 2f, UiSkin.Height - Edge - size, size * 3f + gap * 2f, size);
             var help = new Rect(Buttons.x, Buttons.y, size, size);
             var social = new Rect(help.xMax + gap, Buttons.y, size, size);
             var menu = new Rect(social.xMax + gap, Buttons.y, size, size);
             if (UiSkin.IconButton(help, "help", 0, HelpOpen)) HelpOpen = !HelpOpen;
             var overlay = SocialOverlay.Ensure();
             int attention = overlay != null && overlay.Data != null ? overlay.Data.Attention : 0;
-            if (UiSkin.IconButton(social, "people", attention)) overlay?.Toggle("Friends");
+            if (UiSkin.IconButton(social, "people", attention, SocialOverlay.IsOpen)) overlay?.Toggle("Friends");
             if (UiSkin.IconButton(menu, "menu")) MenuClicked = true;
         }
 
@@ -205,7 +206,7 @@ namespace SwarmPrototype
         {
             const float width = 340f, row = 24f;
             float height = 16f + 24f + Controls.Length * row + 12f;
-            HelpPanel = new Rect(UiSkin.Width - Edge - width, Buttons.yMax + 10f, width, height);
+            HelpPanel = new Rect(UiSkin.Width - Edge - width, Buttons.y - 10f - height, width, height);
             UiSkin.Panel(HelpPanel);
             float x = HelpPanel.x + 16f, y = HelpPanel.y + 14f;
             GUI.Label(new Rect(x, y, 200f, 20f), "CONTROLS", UiSkin.Header);

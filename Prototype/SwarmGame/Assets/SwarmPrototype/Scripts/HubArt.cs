@@ -130,6 +130,16 @@ namespace SwarmPrototype
                     p.Arc(12, 12, 9, 0, 145, 1.8f, c);
                     p.Polyline(new[] { new Vector2(3, 21), new Vector2(3, 16), new Vector2(8, 16) }, 1.8f, c, false);
                     break;
+                case "chevron-right":
+                    p.Polyline(new[] { new Vector2(9, 6), new Vector2(15, 12), new Vector2(9, 18) }, 2, c, false);
+                    break;
+                case "chevron-left":
+                    p.Polyline(new[] { new Vector2(15, 6), new Vector2(9, 12), new Vector2(15, 18) }, 2, c, false);
+                    break;
+                case "arrow-up":
+                    p.Stroke(12, 19, 12, 5.5f, 2.2f, c);
+                    p.Polyline(new[] { new Vector2(6, 11.5f), new Vector2(12, 5.5f), new Vector2(18, 11.5f) }, 2.2f, c, false);
+                    break;
                 case "crown":
                     // 16x12 artwork centred in the 24 box.
                     var crown = new[] { new Vector2(1, 11), new Vector2(2, 3), new Vector2(5.5f, 6.5f), new Vector2(8, 1), new Vector2(10.5f, 6.5f), new Vector2(14, 3), new Vector2(15, 11) };
