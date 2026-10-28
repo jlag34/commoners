@@ -7,7 +7,7 @@ namespace SwarmPrototype
     public class PauseMenu
     {
         const float Width = 260f;
-        const float ButtonHeight = 34f;
+        const float ButtonHeight = 44f;
         const float Pad = 16f;
 
         public bool Open { get; private set; }
@@ -41,7 +41,7 @@ namespace SwarmPrototype
             UiSkin.Panel(Panel);
 
             float y = Panel.y + Pad;
-            var title = UiSkin.Title;
+            var title = UiSkin.Big;
             var old = title.alignment;
             title.alignment = TextAnchor.MiddleCenter;
             GUI.Label(new Rect(Panel.x, y, Width, 28f), "Paused", title);
@@ -49,7 +49,7 @@ namespace SwarmPrototype
             y += 38f;
 
             var row = new Rect(Panel.x + Pad, y, Width - Pad * 2f, ButtonHeight);
-            if (UiSkin.Button(row, "Resume  (Esc)")) Hide();
+            if (UiSkin.GoldButton(row, "Resume", null, "Esc")) Hide();
             row.y += ButtonHeight + 8f;
             if (UiSkin.Button(row, "Restart match  (R)")) Restart();
             row.y += ButtonHeight + 8f;

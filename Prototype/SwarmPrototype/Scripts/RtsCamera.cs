@@ -36,6 +36,18 @@ namespace SwarmPrototype
             Apply();
         }
 
+        // Space / the HUD's Home button.
+        public void FocusHome() { focus = home; Apply(); }
+
+        // E / the HUD's Next enemy button: cycles through the enemy bases.
+        public void FocusNextEnemy()
+        {
+            if (enemies == null || enemies.Length == 0) return;
+            enemyIndex = (enemyIndex + 1) % enemies.Length;
+            focus = enemies[enemyIndex];
+            Apply();
+        }
+
         public void SetHome(Vector3 point, Vector3[] enemyPoints, float mapSize)
         {
             home = point;
@@ -58,12 +70,8 @@ namespace SwarmPrototype
             if (scroll != 0f) zoomTarget = Mathf.Clamp(zoomTarget * Mathf.Pow(ZoomPerNotch, -scroll), MinHeight, MaxHeight);
             height = Mathf.Lerp(height, zoomTarget, 1f - Mathf.Exp(-ZoomSmoothing * Time.unscaledDeltaTime));
 
-            if (InputShim.FocusPressed) focus = home;
-            if (InputShim.EnemyFocusPressed && enemies.Length > 0)
-            {
-                enemyIndex = (enemyIndex + 1) % enemies.Length;
-                focus = enemies[enemyIndex];
-            }
+            if (InputShim.FocusPressed) FocusHome();
+            if (InputShim.EnemyFocusPressed) FocusNextEnemy();
 
             focus.x = Mathf.Clamp(focus.x, -limit, limit);
             focus.z = Mathf.Clamp(focus.z, -limit, limit);

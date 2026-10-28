@@ -43,6 +43,42 @@ namespace SwarmPrototype
                     p.Circle(32, 36, 22, Bone); p.Rect(20, 8, 24, 16, Bone); p.Circle(23, 38, 6, Dark); p.Circle(41, 38, 6, Dark); p.Poly(new[] { new Vector2(32, 24), new Vector2(28, 32), new Vector2(36, 32) }, Dark);
                     p.Rect(25, 8, 3, 10, Dark); p.Rect(31, 8, 3, 10, Dark); p.Rect(37, 8, 3, 10, Dark);
                     break;
+                // HUD glyphs, painted white so GUI.color tints them. y is up.
+                case "help":
+                    p.Ring(32, 32, 27, 4, Color.white);
+                    p.Ring(32, 38, 8, 4, Color.white); p.Erase(18, 20, 14, 18);   // open the hook's lower-left
+                    p.Rect(30, 24, 4, 8, Color.white); p.Circle(32, 17, 3f, Color.white);
+                    break;
+                case "people":
+                    p.Circle(26, 42, 8, Color.white); p.Circle(26, 20, 13, Color.white); p.Rect(10, 6, 32, 14, Color.white);
+                    p.Circle(44, 44, 6, Color.white); p.Circle(46, 24, 10, Color.white); p.Rect(36, 10, 22, 14, Color.white);
+                    break;
+                case "menu":
+                    p.Rect(12, 44, 40, 5, Color.white); p.Rect(12, 30, 40, 5, Color.white); p.Rect(12, 16, 40, 5, Color.white);
+                    break;
+                case "home":
+                    p.Line(10, 34, 32, 54, 4, Color.white); p.Line(32, 54, 54, 34, 4, Color.white);
+                    p.Line(16, 36, 16, 10, 4, Color.white); p.Line(48, 36, 48, 10, 4, Color.white); p.Line(16, 10, 48, 10, 4, Color.white);
+                    p.Rect(27, 10, 10, 16, Color.white);
+                    break;
+                case "target":
+                    p.Ring(32, 32, 18, 4, Color.white); p.Circle(32, 32, 5, Color.white);
+                    p.Rect(30, 2, 4, 12, Color.white); p.Rect(30, 50, 4, 12, Color.white); p.Rect(2, 30, 12, 4, Color.white); p.Rect(50, 30, 12, 4, Color.white);
+                    break;
+                case "bag":
+                    p.Ring(32, 40, 9, 4, Color.white); p.Erase(18, 20, 28, 20);   // handle: upper half ring only
+                    p.Rect(14, 8, 36, 32, Color.white);
+                    break;
+                case "swords":
+                    p.Line(12, 12, 50, 50, 5, Color.white); p.Line(52, 12, 14, 50, 5, Color.white);
+                    p.Line(8, 22, 20, 10, 5, Color.white); p.Line(44, 10, 56, 22, 5, Color.white);
+                    break;
+                case "timer":
+                    p.Ring(32, 30, 22, 5, Color.white); p.Line(32, 30, 32, 44, 4, Color.white); p.Line(32, 30, 41, 24, 4, Color.white); p.Rect(26, 54, 12, 6, Color.white);
+                    break;
+                case "close":
+                    p.Line(16, 16, 48, 48, 5, Color.white); p.Line(16, 48, 48, 16, 5, Color.white);
+                    break;
                 case "eliteMarker":
                     // Minimap marker: skull on a dark disc with an orange ring, readable at 18 px.
                     p.Circle(32, 32, 30, new Color(0.35f, 0.1f, 0f)); p.Ring(32, 32, 28, 5, Orange); p.Circle(32, 32, 24, Dark);
@@ -211,6 +247,13 @@ namespace SwarmPrototype
                         float d = Vector2.Distance(q, a + (b - a) * t);
                         Blend(x, y, c, Mathf.Clamp01(thickness * 0.5f - d + 0.5f));
                     }
+            }
+
+            public void Erase(float x0, float y0, float w, float h)
+            {
+                for (int y = Mathf.Max(0, (int)y0); y < Mathf.Min(Size, (int)(y0 + h)); y++)
+                    for (int x = Mathf.Max(0, (int)x0); x < Mathf.Min(Size, (int)(x0 + w)); x++)
+                        px[y * Size + x] = Color.clear;
             }
 
             public void Poly(Vector2[] pts, Color c)

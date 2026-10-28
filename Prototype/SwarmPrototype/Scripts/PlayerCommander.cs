@@ -67,7 +67,7 @@ namespace SwarmPrototype
                 else pause.Show();
             }
             if (InputShim.ShopPressed) shop.Open = !shop.Open;
-            if (InputShim.StatsPressed) scoreBoard.Open = !scoreBoard.Open;
+            if (InputShim.StatsPressed) scoreBoard.Toggle();
             if (InputShim.DebugPressed) debug = Unit.DebugDraw = !debug;
             if (InputShim.GearPressed) CycleGear();
             if (InputShim.LookPressed) CycleLook();
@@ -182,6 +182,9 @@ namespace SwarmPrototype
             }
             if (hud.Draw(playerBase, shop.Open)) shop.Open = !shop.Open;
             if (hud.MenuClicked && !pause.Open) { shop.Open = false; pause.Show(); }
+            var rtsCamera = cam.GetComponent<RtsCamera>();
+            if (hud.HomeClicked && rtsCamera != null) rtsCamera.FocusHome();
+            if (hud.EnemyClicked && rtsCamera != null) rtsCamera.FocusNextEnemy();
             scoreBoard.Draw(bases);
             DrawCampLabel();
             if (debug) DrawDebug();
@@ -193,8 +196,8 @@ namespace SwarmPrototype
                 string text = GameState.Winner == GameState.PlayerTeam ? "Victory" : "Defeat";
                 GUI.Label(new Rect(0, Screen.height * 0.3f, Screen.width, 80), text, bigLabel);
                 float y = Screen.height * 0.3f + 90f;
-                if (UiSkin.Button(new Rect(Screen.width * 0.5f - 150f, y, 140f, 34f), "Play again  (R)")) pause.Restart();
-                if (UiSkin.Button(new Rect(Screen.width * 0.5f + 10f, y, 140f, 34f), "Quit to home  (M)")) pause.QuitToHome();
+                if (UiSkin.GoldButton(new Rect(Screen.width * 0.5f - 170f, y, 160f, 48f), "Play again", null, "R")) pause.Restart();
+                if (UiSkin.Button(new Rect(Screen.width * 0.5f + 10f, y, 160f, 48f), "Quit to home  (M)")) pause.QuitToHome();
             }
 
             pause.Draw();
@@ -220,19 +223,12 @@ namespace SwarmPrototype
         // Name, tier, count and strength bonus floating over each monster camp, and the elite's name.
         void DrawCampLabel()
         {
-            var style = UiSkin.Bold;
-            var old = style.alignment;
-            style.alignment = TextAnchor.MiddleCenter;
             foreach (var elite in EliteSpawner.Alive)
             {
                 if (elite == null || elite.IsDead) continue;
                 Vector3 screen = cam.WorldToScreenPoint(elite.transform.position + Vector3.up * (elite.HealthBarHeight + 1.2f));
                 if (screen.z <= 0f) continue;
-                string text = $"Elite  ·  {elite.DisplayName}  ·  {EliteAbilities.Describe(elite.Abilities)}";
-                float width = style.CalcSize(new GUIContent(text)).x + 16f;
-                var rect = new Rect(screen.x - width * 0.5f, Screen.height - screen.y - 10f, width, 20f);
-                UiSkin.Fill(rect, new Color(0.35f, 0.1f, 0f, 0.7f));
-                GUI.Label(rect, text, style);
+                WorldPill(screen, "skull", $"Elite  ·  {elite.DisplayName}  ·  {EliteAbilities.Describe(elite.Abilities)}", new Color(0.35f, 0.1f, 0f, 0.85f));
             }
             foreach (var camp in Camp.All)
             {
@@ -240,15 +236,30 @@ namespace SwarmPrototype
                 Vector3 screen = cam.WorldToScreenPoint(camp.Center + Vector3.up * 4f);
                 if (screen.z < 0f || screen.x < -100f || screen.x > Screen.width + 100f || screen.y < -50f || screen.y > Screen.height + 50f) continue;
                 int bonus = Mathf.RoundToInt((camp.Scale - 1f) * 100f);
-                string text = camp.Cleared
-                    ? $"Cleared  ·  respawns in {Mathf.CeilToInt(camp.RespawnIn)}s"
-                    : $"{camp.Name}  ·  {camp.Difficulty}  ·  {camp.Alive}/{camp.Total}" + (bonus > 0 ? $"  ·  +{bonus}%" : "");
-                float width = style.CalcSize(new GUIContent(text)).x + 16f;
-                var rect = new Rect(screen.x - width * 0.5f, Screen.height - screen.y - 10f, width, 20f);
-                UiSkin.Fill(rect, new Color(0f, 0f, 0f, 0.55f));
-                GUI.Label(rect, text, style);
+                if (camp.Cleared) WorldPill(screen, "timer", $"Respawns in {Mathf.CeilToInt(camp.RespawnIn)}s", UiSkin.Surface);
+                else WorldPill(screen, null, $"{camp.Name}  ·  {camp.Alive}/{camp.Total}" + (bonus > 0 ? $"  ·  +{bonus}%" : ""), UiSkin.Surface);
             }
-            style.alignment = old;
+        }
+
+        // Rounded label centred on a screen point, with an optional gold glyph at the left.
+        static void WorldPill(Vector3 screen, string icon, string text, Color fill)
+        {
+            var style = UiSkin.Bold;
+            const float height = 30f;
+            float textWidth = style.CalcSize(new GUIContent(text)).x;
+            float iconWidth = icon != null ? 24f : 0f;
+            float width = textWidth + iconWidth + 30f;
+            var rect = new Rect(screen.x - width * 0.5f, Screen.height - screen.y - height * 0.5f, width, height);
+            UiSkin.Pill(rect, fill);
+            float x = rect.x + 14f;
+            if (icon != null)
+            {
+                GUI.color = UiSkin.Gold;
+                GUI.DrawTexture(new Rect(x, rect.y + 7f, 16f, 16f), Icons.Get(icon));
+                GUI.color = Color.white;
+                x += iconWidth;
+            }
+            GUI.Label(new Rect(x, rect.y, textWidth + 4f, height), text, style);
         }
 
         void DrawHealthBars()

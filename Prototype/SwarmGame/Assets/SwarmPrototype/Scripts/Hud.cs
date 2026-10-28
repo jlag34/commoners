@@ -3,28 +3,46 @@ using UnityEngine;
 
 namespace SwarmPrototype
 {
-    // The resource bar in the top-left: gold, skulls, the three essences, units
-    // alive and a Shop button. Hovering a resource explains where it comes from.
-    // Also the toast messages under it and the faint controls line at the bottom.
+    // The match HUD chrome: resource pill top-left, match clock top-centre, help /
+    // social / menu buttons top-right, the action bar at the bottom (units, Home,
+    // Next enemy, Shop) and the help card. Hovering a resource explains where it
+    // comes from. Toasts stack under the resource pill. The standings table is
+    // ScoreBoard, the minimap is MiniMap.
     public class Hud
     {
-        const float Height = 36f;
+        const float Edge = 16f;
+        const float PillHeight = 52f;
         const float ToastLife = 4f;
 
         public Rect Panel { get; private set; }
-        // True on the frame the Menu button was clicked.
+        public Rect ClockPanel { get; private set; }
+        public Rect Buttons { get; private set; }
+        public Rect Bar { get; private set; }
+        public Rect HelpPanel { get; private set; }
+
+        // Set for one frame when the matching control was clicked.
         public bool MenuClicked { get; private set; }
+        public bool HomeClicked { get; private set; }
+        public bool EnemyClicked { get; private set; }
+        public bool HelpOpen { get; private set; }
 
         readonly List<(string text, float until)> toasts = new List<(string, float)>();
         string tooltip;
 
-        static readonly (string icon, string caption, string help)[] Resources =
+        static readonly (string icon, float size, string help)[] Resources =
         {
-            ("coin", "gold", "Gold: from killing anything. Buys every upgrade."),
-            ("skull", "skulls", "Skulls: every neutral monster you kill (1 easy, 4 medium, 10 hard, 50 elite). Greater upgrades cost skulls."),
-            ("lesser", "lesser", "Lesser Essence: a chance from any camp monster. Needed per level for the weaker Greater upgrades."),
-            ("greater", "greater", "Greater Essence: a good chance from hard camps, guaranteed from elites. Needed for lifesteal, evasion, crit, reincarnate."),
-            ("elite", "elite", "Elite Essence: guaranteed from the road elites, rare from hard camps. Needed for spawn rate and splash."),
+            ("coin", 20f, "Gold: from killing anything. Buys every upgrade."),
+            ("skull", 20f, "Skulls: every neutral monster you kill (1 easy, 4 medium, 10 hard, 50 elite). Greater upgrades cost skulls."),
+            ("lesser", 14f, "Lesser Essence: a chance from any camp monster. Needed per level for the weaker Greater upgrades."),
+            ("greater", 14f, "Greater Essence: a good chance from hard camps, guaranteed from elites. Needed for lifesteal, evasion, crit, reincarnate."),
+            ("elite", 14f, "Elite Essence: guaranteed from the road elites, rare from hard camps. Needed for spawn rate and splash."),
+        };
+
+        static readonly (string action, string key)[] Controls =
+        {
+            ("Rally point", "Right-click"), ("Shop", "B  /  click tower"), ("Standings", "Tab"), ("Pan", "WASD  /  edge  /  middle-drag"),
+            ("Zoom", "Scroll"), ("Home", "Space"), ("Next enemy", "E"), ("Minimap", "click look  /  right-click rally"),
+            ("Social", "F6"), ("Restart", "R"), ("Menu", "Esc"),
         };
 
         public Hud()
@@ -35,59 +53,67 @@ namespace SwarmPrototype
         public bool Covers(Vector2 mouse)
         {
             var p = new Vector2(mouse.x, Screen.height - mouse.y);
-            return Panel.Contains(p) || ClockPanel.Contains(p);
+            return Panel.Contains(p) || ClockPanel.Contains(p) || Buttons.Contains(p) || Bar.Contains(p) || (HelpOpen && HelpPanel.Contains(p));
         }
 
         // Returns true when the Shop button was clicked this frame.
         public bool Draw(Spawner mine, bool shopOpen)
         {
-            int team = GameState.PlayerTeam;
-            int units = mine != null ? mine.AliveUnits : 0;
+            MenuClicked = HomeClicked = EnemyClicked = false;
             tooltip = null;
-
-            Panel = new Rect(12f, 12f, 640f, Height);
-            UiSkin.Panel(Panel);
             Vector2 mouse = Event.current.mousePosition;
 
-            float x = Panel.x + 10f;
-            int[] amounts = { GameState.Gold[team], GameState.Skulls[team], GameState.Essence[team][0], GameState.Essence[team][1], GameState.Essence[team][2] };
-            for (int i = 0; i < Resources.Length; i++)
-            {
-                float start = x;
-                x = Stat(x, Resources[i].icon, amounts[i].ToString(), Resources[i].caption);
-                if (new Rect(start, Panel.y, x - start, Panel.height).Contains(mouse)) tooltip = Resources[i].help;
-            }
-            UiSkin.Fill(new Rect(x, Panel.y + 8f, 1f, Height - 16f), UiSkin.Gold);
-            x += 12f;
-            float unitsStart = x;
-            int cap = mine != null ? mine.MaxUnits : 0;
-            x = StatDot(x, GameState.TeamColors[team], cap > 0 ? $"{units}/{cap}" : units.ToString(), "units");
-            if (new Rect(unitsStart, Panel.y, x - unitsStart, Panel.height).Contains(mouse))
-                tooltip = cap > 0 ? "Units alive / max. One spawns every few seconds until the cap; buy Unit Count in the shop to raise it." : "Units alive. One spawns every few seconds; no cap.";
-
+            DrawResources(mouse);
             DrawClock();
-
-            var menuRect = new Rect(Panel.xMax - 78f, Panel.y + 6f, 68f, Height - 12f);
-            MenuClicked = UiSkin.Button(menuRect, "Menu  (Esc)");
-            var shopRect = new Rect(menuRect.x - 84f, Panel.y + 6f, 76f, Height - 12f);
-            bool clicked = UiSkin.Button(shopRect, shopOpen ? "Close" : "Shop  (B)", shopOpen);
-
+            DrawTopRight();
+            bool shopClicked = DrawBar(mine, shopOpen);
             DrawTooltip();
             DrawToasts();
+            if (HelpOpen) DrawHelp();
+            return shopClicked;
+        }
 
-            GUI.Label(new Rect(232f, Screen.height - 20f, Screen.width - 244f, 16f),
-                "Right-click: rally point    B / click tower: shop    Tab: players    WASD, edge, middle-drag: pan    Scroll: zoom    Space: home    E: next enemy    Minimap: click to look, right-click to rally    R: restart    Esc: menu", UiSkin.Small);
-            return clicked;
+        void DrawResources(Vector2 mouse)
+        {
+            int team = GameState.PlayerTeam;
+            int[] amounts = { GameState.Gold[team], GameState.Skulls[team], GameState.Essence[team][0], GameState.Essence[team][1], GameState.Essence[team][2] };
+
+            // Measure first so the pill hugs its contents.
+            float width = 16f;
+            var widths = new float[Resources.Length];
+            for (int i = 0; i < Resources.Length; i++)
+            {
+                widths[i] = Resources[i].size + 8f + UiSkin.Number.CalcSize(new GUIContent(amounts[i].ToString())).x + 16f;
+                width += widths[i];
+                if (i == 1) width += 17f; // divider between currencies and essences
+            }
+            Panel = new Rect(Edge, Edge, width, PillHeight);
+            UiSkin.Panel(Panel);
+
+            float x = Panel.x + 16f;
+            float midY = Panel.center.y;
+            for (int i = 0; i < Resources.Length; i++)
+            {
+                var slot = new Rect(x - 8f, Panel.y, widths[i], Panel.height);
+                UiSkin.IconLabel(x, midY, Resources[i].icon, Resources[i].size, amounts[i].ToString(), UiSkin.Number);
+                if (slot.Contains(mouse)) tooltip = Resources[i].help;
+                x += widths[i];
+                if (i == 1)
+                {
+                    UiSkin.Fill(new Rect(x - 4f, Panel.y + 14f, 1f, Panel.height - 28f), UiSkin.Border);
+                    x += 17f;
+                }
+            }
         }
 
         // Match clock, top centre: minutes:seconds since the bases were placed. It stops with the pause menu.
-        public Rect ClockPanel { get; private set; }
         void DrawClock()
         {
             int seconds = Mathf.Max(0, Mathf.FloorToInt(GameState.MatchMinutes * 60f));
             string text = $"{seconds / 60}:{seconds % 60:00}";
-            ClockPanel = new Rect(Screen.width * 0.5f - 46f, 12f, 92f, Height);
-            UiSkin.Panel(ClockPanel);
+            float w = UiSkin.Number.CalcSize(new GUIContent(text)).x + 40f;
+            ClockPanel = new Rect(Screen.width * 0.5f - w * 0.5f, Edge, w, 40f);
+            UiSkin.Panel(ClockPanel, 12f);
             var style = UiSkin.Number;
             var old = style.alignment;
             style.alignment = TextAnchor.MiddleCenter;
@@ -95,60 +121,135 @@ namespace SwarmPrototype
             style.alignment = old;
         }
 
+        void DrawTopRight()
+        {
+            const float size = 52f, gap = 8f;
+            Buttons = new Rect(Screen.width - Edge - size * 3f - gap * 2f, Edge, size * 3f + gap * 2f, size);
+            var help = new Rect(Buttons.x, Buttons.y, size, size);
+            var social = new Rect(help.xMax + gap, Buttons.y, size, size);
+            var menu = new Rect(social.xMax + gap, Buttons.y, size, size);
+            if (UiSkin.IconButton(help, "help", 0, HelpOpen)) HelpOpen = !HelpOpen;
+            var overlay = SocialOverlay.Ensure();
+            int attention = overlay != null && overlay.Data != null ? overlay.Data.Attention : 0;
+            if (UiSkin.IconButton(social, "people", attention)) overlay?.Toggle("Friends");
+            if (UiSkin.IconButton(menu, "menu")) MenuClicked = true;
+        }
+
+        bool DrawBar(Spawner mine, bool shopOpen)
+        {
+            int team = GameState.PlayerTeam;
+            int units = mine != null ? mine.AliveUnits : 0;
+            int cap = mine != null ? mine.MaxUnits : 0;
+
+            const float height = 72f;
+            const float unitsWidth = 170f, actionWidth = 170f, shopWidth = 150f, pad = 16f;
+            float width = pad + unitsWidth + 1f + actionWidth * 2f + shopWidth + pad;
+            Bar = new Rect(Screen.width * 0.5f - width * 0.5f, Screen.height - Edge - height, width, height);
+            UiSkin.Panel(Bar, 16f);
+
+            // Units alive / cap, then a segmented bar in the team color.
+            float x = Bar.x + pad + 6f;
+            float midY = Bar.center.y;
+            string alive = units.ToString();
+            var big = UiSkin.Big;
+            float aw = big.CalcSize(new GUIContent(alive)).x;
+            GUI.Label(new Rect(x, midY - 24f, aw + 4f, 30f), alive, big);
+            if (cap > 0)
+            {
+                var mutedBig = UiSkin.Big;
+                Color old = mutedBig.normal.textColor;
+                mutedBig.normal.textColor = UiSkin.Muted;
+                string capText = "/" + cap;
+                float cw = mutedBig.CalcSize(new GUIContent(capText)).x;
+                GUI.Label(new Rect(x + aw, midY - 24f, cw + 4f, 30f), capText, mutedBig);
+                mutedBig.normal.textColor = old;
+                if (units >= cap) GUI.Label(new Rect(x + aw + cw + 8f, midY - 20f, 40f, 22f), "MAX", UiSkin.Tiny);
+            }
+            int segments = cap > 0 ? Mathf.Min(cap, 20) : 10;
+            float segWidth = (unitsWidth - 30f - (segments - 1) * 3f) / segments;
+            float filled = cap > 0 ? (float)units / cap : 1f;
+            Color teamColor = GameState.TeamColors[team];
+            for (int i = 0; i < segments; i++)
+            {
+                bool on = (i + 0.5f) / segments <= filled;
+                UiSkin.Rounded(new Rect(x + i * (segWidth + 3f), midY + 12f, segWidth, 5f), on ? teamColor : new Color(1f, 1f, 1f, 0.1f), 2f);
+            }
+
+            x = Bar.x + pad + unitsWidth;
+            UiSkin.Fill(new Rect(x, Bar.y + 20f, 1f, height - 40f), UiSkin.Border);
+            x += 1f;
+
+            if (Action(new Rect(x, Bar.y, actionWidth, height), "home", "Home", "Space")) HomeClicked = true;
+            x += actionWidth;
+            if (Action(new Rect(x, Bar.y, actionWidth, height), "target", "Next enemy", "E")) EnemyClicked = true;
+            x += actionWidth;
+            return UiSkin.GoldButton(new Rect(x, Bar.y + 12f, shopWidth, height - 24f), shopOpen ? "Close" : "Shop", "bag", "B");
+        }
+
+        // Icon, caption and keycap on a transparent hit area; lights up on hover.
+        static bool Action(Rect r, string icon, string label, string key)
+        {
+            bool hover = r.Contains(Event.current.mousePosition);
+            float x = r.x + 18f;
+            float midY = r.center.y;
+            var style = UiSkin.Bold;
+            Color old = style.normal.textColor;
+            style.normal.textColor = hover ? Color.white : UiSkin.Text;
+            x = UiSkin.IconLabel(x, midY, icon, 20f, label, style, hover ? Color.white : UiSkin.Text);
+            style.normal.textColor = old;
+            UiSkin.Key(new Vector2(x + 10f, midY), key);
+            return GUI.Button(r, GUIContent.none, GUIStyle.none);
+        }
+
+        void DrawHelp()
+        {
+            const float width = 360f, row = 24f;
+            float height = 16f + 24f + Controls.Length * row + 12f;
+            HelpPanel = new Rect(Screen.width - Edge - width, Buttons.yMax + 12f, width, height);
+            UiSkin.Panel(HelpPanel);
+            float x = HelpPanel.x + 16f, y = HelpPanel.y + 14f;
+            GUI.Label(new Rect(x, y, 200f, 20f), "CONTROLS", UiSkin.Header);
+            if (UiSkin.IconButton(new Rect(HelpPanel.xMax - 40f, y - 4f, 28f, 28f), "close")) HelpOpen = false;
+            y += 28f;
+            foreach (var (action, key) in Controls)
+            {
+                GUI.Label(new Rect(x, y, 140f, row), action, UiSkin.Cell);
+                GUI.Label(new Rect(x + 130f, y, width - 150f, row), key, UiSkin.Small);
+                y += row;
+            }
+        }
+
         void DrawTooltip()
         {
             if (tooltip == null) return;
             var style = UiSkin.Cell;
-            float width = Mathf.Min(420f, style.CalcSize(new GUIContent(tooltip)).x + 16f);
-            float height = style.CalcHeight(new GUIContent(tooltip), width - 16f) + 10f;
-            var rect = new Rect(Panel.x, Panel.yMax + 6f, width, height);
-            UiSkin.Panel(rect);
-            GUI.Label(new Rect(rect.x + 8f, rect.y + 5f, width - 16f, height - 10f), tooltip, style);
+            style.wordWrap = true;
+            float width = Mathf.Min(420f, style.CalcSize(new GUIContent(tooltip)).x + 24f);
+            float height = style.CalcHeight(new GUIContent(tooltip), width - 24f) + 16f;
+            var rect = new Rect(Panel.x, Panel.yMax + 8f, width, height);
+            UiSkin.Panel(rect, 10f);
+            GUI.Label(new Rect(rect.x + 12f, rect.y + 8f, width - 24f, height - 16f), tooltip, style);
+            style.wordWrap = false;
         }
 
-        // Short-lived messages under the banner (below the tooltip if one is showing).
+        // Short-lived messages under the resource pill (below the tooltip if one is showing).
         void DrawToasts()
         {
             toasts.RemoveAll(t => Time.time > t.until);
-            float y = Panel.yMax + (tooltip != null ? 70f : 8f);
+            float y = Panel.yMax + (tooltip != null ? 70f : 10f);
             foreach (var t in toasts)
             {
                 float alpha = Mathf.Clamp01((t.until - Time.time) / 1f);
-                float width = UiSkin.Bold.CalcSize(new GUIContent(t.text)).x + 16f;
-                var rect = new Rect(Panel.x, y, width, 20f);
-                UiSkin.Fill(rect, new Color(0f, 0f, 0f, 0.6f * alpha));
                 var style = UiSkin.Bold;
+                float width = style.CalcSize(new GUIContent(t.text)).x + 28f;
+                var rect = new Rect(Panel.x, y, width, 30f);
+                UiSkin.Pill(rect, new Color(UiSkin.Surface.r, UiSkin.Surface.g, UiSkin.Surface.b, 0.92f * alpha));
                 Color old = style.normal.textColor;
                 style.normal.textColor = new Color(old.r, old.g, old.b, alpha);
-                GUI.Label(new Rect(rect.x + 8f, rect.y, width, 20f), t.text, style);
+                GUI.Label(new Rect(rect.x + 14f, rect.y, width, 30f), t.text, style);
                 style.normal.textColor = old;
-                y += 22f;
+                y += 34f;
             }
-        }
-
-        // Icon, big number, muted caption on one line. Returns where the next one starts.
-        float Stat(float x, string icon, string value, string caption)
-        {
-            float midY = Panel.y + Height * 0.5f;
-            GUI.DrawTexture(new Rect(x, midY - 10f, 20f, 20f), Icons.Get(icon));
-            return Text(x + 24f, midY, value, caption);
-        }
-
-        float StatDot(float x, Color color, string value, string caption)
-        {
-            float midY = Panel.y + Height * 0.5f;
-            UiSkin.Icon(new Rect(x, midY - 7f, 14f, 14f), color);
-            return Text(x + 20f, midY, value, caption);
-        }
-
-        float Text(float x, float midY, string value, string caption)
-        {
-            float valueWidth = UiSkin.Number.CalcSize(new GUIContent(value)).x;
-            GUI.Label(new Rect(x, midY - 12f, valueWidth + 4f, 24f), value, UiSkin.Number);
-            x += valueWidth + 4f;
-            float captionWidth = UiSkin.Small.CalcSize(new GUIContent(caption)).x;
-            GUI.Label(new Rect(x, midY - 8f, captionWidth + 4f, 16f), caption, UiSkin.Small);
-            return x + captionWidth + 12f;
         }
     }
 }

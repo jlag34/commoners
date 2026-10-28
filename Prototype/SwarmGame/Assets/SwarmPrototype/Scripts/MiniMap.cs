@@ -7,8 +7,9 @@ namespace SwarmPrototype
     // jumps the camera there, right-click sets the rally point there.
     public class MiniMap
     {
-        const float Size = 200f;
-        const float Pad = 4f;
+        const float Size = 220f;
+        const float Pad = 8f;
+        const float Edge = 16f;
 
         public Rect Panel { get; private set; }
         public Rect Map { get; private set; }
@@ -90,9 +91,9 @@ namespace SwarmPrototype
         public void Draw(Camera cam)
         {
             if (layout == null) return;
-            Panel = new Rect(12f, Screen.height - Size - Pad * 2f - 28f, Size + Pad * 2f, Size + Pad * 2f);
+            Panel = new Rect(Edge, Screen.height - Edge - Size - Pad * 2f, Size + Pad * 2f, Size + Pad * 2f);
             Map = new Rect(Panel.x + Pad, Panel.y + Pad, Size, Size);
-            UiSkin.Panel(Panel);
+            UiSkin.Panel(Panel, 18f);
             layout.DrawPreview(Map, team => bases == null || (team < bases.Length && bases[team] != null && !bases[team].IsDead));
 
             // Dead camps show as empty circles.

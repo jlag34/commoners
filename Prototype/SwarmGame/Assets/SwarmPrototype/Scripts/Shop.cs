@@ -70,7 +70,7 @@ namespace SwarmPrototype
             GUI.Label(new Rect(x, y, 140f, 22f), "Tower Shop", UiSkin.Title);
             Currency(panel.xMax - 150f, y + 2f, "coin", GameState.Gold[tower.Team]);
             Currency(panel.xMax - 100f, y + 2f, "skull", GameState.Skulls[tower.Team]);
-            if (UiSkin.Button(new Rect(panel.xMax - 30f, y + 1f, 18f, 18f), "x")) Open = false;
+            if (UiSkin.IconButton(new Rect(panel.xMax - 36f, y - 2f, 26f, 26f), "close")) Open = false;
 
             y = panel.y + HeaderHeight;
             float tabX = x;
@@ -132,10 +132,10 @@ namespace SwarmPrototype
             bool maxed = tower.IsMaxed(i);
             bool canAfford = !maxed && tower.CanAfford(i) && !GameState.Over;
 
-            Color frame = maxed ? UiSkin.GoldBright : canAfford ? UiSkin.Gold : UiSkin.Muted;
+            Color frame = maxed ? UiSkin.GoldBright : canAfford ? UiSkin.Gold : new Color(1f, 1f, 1f, 0.12f);
             if (hover && canAfford) frame = Color.white;
-            UiSkin.Fill(new Rect(rect.x - 2f, rect.y - 2f, rect.width + 4f, rect.height + 4f), frame);
-            UiSkin.Fill(rect, hover ? UiSkin.BackLight : new Color(0.1f, 0.09f, 0.08f, 1f));
+            UiSkin.Rounded(rect, hover ? UiSkin.SurfaceSoft : new Color(0.07f, 0.11f, 0.105f, 1f), 8f);
+            UiSkin.Outline(rect, frame, 8f, maxed || hover ? 2f : 1f);
 
             GUI.color = canAfford || maxed ? Color.white : new Color(0.5f, 0.5f, 0.5f, 1f);
             GUI.DrawTexture(new Rect(rect.x + 6f, rect.y + 4f, rect.width - 12f, rect.height - 12f), Icons.Get(u.id));
@@ -146,7 +146,7 @@ namespace SwarmPrototype
             var small = UiSkin.Small;
             float bw = small.CalcSize(new GUIContent(badge)).x + 8f;
             var badgeRect = new Rect(rect.xMax - bw - 2f, rect.yMax - 16f, bw, 14f);
-            UiSkin.Fill(badgeRect, new Color(0f, 0f, 0f, 0.75f));
+            UiSkin.Rounded(badgeRect, new Color(0f, 0f, 0f, 0.7f), 4f);
             Color old = small.normal.textColor;
             small.normal.textColor = maxed ? UiSkin.GoldBright : UiSkin.Text;
             GUI.Label(new Rect(badgeRect.x + 4f, badgeRect.y - 1f, bw, 16f), badge, small);

@@ -2,72 +2,101 @@ using UnityEngine;
 
 namespace SwarmPrototype
 {
-    // Warcraft 3 style stats table in the top-right: one row per player with
-    // their name in team color, total upgrade level, kills and deaths. The header
-    // strip always shows; its button (or Tab) collapses the table to just that strip.
+    // Standings card under the top-right buttons: one row per player with a
+    // team swatch, name, total upgrade level and kills. Compact shows the first
+    // four rows plus "+N more"; Tab (or the footer) expands to everyone; the X
+    // hides the card and Tab brings it back.
     public class ScoreBoard
     {
-        const float Width = 250f;
-        const float CollapsedWidth = 120f;
-        const float RowHeight = 18f;
-        const float TitleHeight = 22f;
-        const float Pad = 8f;
+        public enum Mode { Hidden, Compact, Full }
 
-        public bool Open { get; set; } = true;
+        const float Width = 300f;
+        const float Edge = 16f;
+        const float Top = 16f + 52f + 12f;   // under the icon buttons
+        const float RowHeight = 32f;
+        const float HeaderHeight = 36f;
+        const float FooterHeight = 36f;
+        const float Pad = 12f;
+        const int CompactRows = 4;
+
+        public Mode State { get; private set; } = Mode.Compact;
+        public bool Open => State != Mode.Hidden;
         public Rect Panel { get; private set; }
 
-        public bool Covers(Vector2 mouse) => Panel.Contains(new Vector2(mouse.x, Screen.height - mouse.y));
+        public void Toggle() => State = State == Mode.Full ? Mode.Compact : Mode.Full;
+        public void Hide() => State = Mode.Hidden;
+
+        public bool Covers(Vector2 mouse) => Open && Panel.Contains(new Vector2(mouse.x, Screen.height - mouse.y));
 
         public void Draw(Spawner[] bases)
         {
-            int rows = bases.Length;
-            float width = Open ? Width : CollapsedWidth;
-            float height = Open ? TitleHeight + Pad * 0.5f + RowHeight * (rows + 1) + Pad * 0.5f : TitleHeight;
-            Panel = new Rect(Screen.width - width - 12f, 12f, width, height);
+            if (!Open) { Panel = Rect.zero; return; }
+            int total = bases.Length;
+            int rows = State == Mode.Full ? total : Mathf.Min(CompactRows, total);
+            bool footer = total > rows || State == Mode.Full;
+            float height = HeaderHeight + rows * RowHeight + (footer ? FooterHeight : Pad * 0.5f) + 4f;
+            Panel = new Rect(Screen.width - Edge - Width, Top, Width, height);
             UiSkin.Panel(Panel);
 
-            // Title strip with the collapse / expand button at its right edge.
-            GUI.Label(new Rect(Panel.x + Pad, Panel.y, width - Pad * 2f - 24f, TitleHeight), Open ? "Players" : "Players  (Tab)", UiSkin.Title);
-            var toggle = new Rect(Panel.xMax - 22f, Panel.y + 3f, 16f, TitleHeight - 6f);
-            if (UiSkin.Button(toggle, Open ? "–" : "+")) Open = !Open;
-            if (!Open) return;
-
-            // Columns: name takes what's left; the three numbers are fixed width.
-            const float numberWidth = 48f;
             float x = Panel.x + Pad;
-            float nameWidth = Panel.width - Pad * 2f - numberWidth * 3f;
-            float y = Panel.y + TitleHeight + Pad * 0.5f;
+            float y = Panel.y;
+            const float killsWidth = 36f, levelWidth = 44f;
+            float killsX = Panel.xMax - Pad - 30f - killsWidth;
+            float levelX = killsX - levelWidth;
 
-            GUI.Label(new Rect(x, y, nameWidth, RowHeight), "Player", UiSkin.Header);
-            GUI.Label(new Rect(x + nameWidth, y, numberWidth, RowHeight), "Level", UiSkin.Header);
-            GUI.Label(new Rect(x + nameWidth + numberWidth, y, numberWidth, RowHeight), "Kills", UiSkin.Header);
-            GUI.Label(new Rect(x + nameWidth + numberWidth * 2f, y, numberWidth, RowHeight), "Deaths", UiSkin.Header);
-            y += RowHeight;
-            UiSkin.Rule(Panel.x + 6f, y - 1f, Panel.width - 12f);
-            y += 2f;
+            // Header: title, column glyphs, close.
+            GUI.Label(new Rect(x + 4f, y, 160f, HeaderHeight), "STANDINGS", UiSkin.Header);
+            var head = UiSkin.Header;
+            var oldAlign = head.alignment;
+            head.alignment = TextAnchor.MiddleCenter;
+            GUI.Label(new Rect(levelX, y, levelWidth, HeaderHeight), "Lv", head);
+            head.alignment = oldAlign;
+            GUI.color = UiSkin.Muted;
+            GUI.DrawTexture(new Rect(killsX + killsWidth * 0.5f - 7f, y + HeaderHeight * 0.5f - 7f, 14f, 14f), Icons.Get("swords"));
+            GUI.color = Color.white;
+            var close = new Rect(Panel.xMax - Pad - 24f, y + HeaderHeight * 0.5f - 12f, 24f, 24f);
+            if (close.Contains(Event.current.mousePosition)) UiSkin.Rounded(close, UiSkin.Wash, 6f);
+            GUI.color = UiSkin.Muted;
+            GUI.DrawTexture(new Rect(close.x + 6f, close.y + 6f, 12f, 12f), Icons.Get("close"));
+            GUI.color = Color.white;
+            if (GUI.Button(close, GUIContent.none, GUIStyle.none)) { Hide(); return; }
+            y += HeaderHeight;
 
+            var cell = UiSkin.Bold;
+            var numberStyle = UiSkin.Bold;
             for (int team = 0; team < rows; team++, y += RowHeight)
             {
                 Spawner b = bases[team];
                 Color color = GameState.TeamColors[team];
                 bool alive = b != null && !b.IsDead;
+                var row = new Rect(Panel.x + 6f, y, Panel.width - 12f, RowHeight);
+                if (team == GameState.PlayerTeam) UiSkin.Rounded(row, UiSkin.Wash, 8f);
 
-                // Dead players fade out, like a leaver in WC3.
-                var name = UiSkin.Bold;
-                var cell = UiSkin.Cell;
-                Color nameColor = name.normal.textColor, cellColor = cell.normal.textColor;
-                name.normal.textColor = alive ? color : Color.Lerp(color, Color.gray, 0.6f);
-                if (!alive) cell.normal.textColor = Color.gray;
-
-                UiSkin.Fill(new Rect(x, y + 4f, 10f, 10f), color);
-                GUI.Label(new Rect(x + 16f, y, nameWidth - 16f, RowHeight), GameState.TeamNames[team], name);
-                GUI.Label(new Rect(x + nameWidth, y, numberWidth, RowHeight), (b != null ? b.TotalLevels : 0).ToString(), cell);
-                GUI.Label(new Rect(x + nameWidth + numberWidth, y, numberWidth, RowHeight), GameState.Kills[team].ToString(), cell);
-                GUI.Label(new Rect(x + nameWidth + numberWidth * 2f, y, numberWidth, RowHeight), GameState.Deaths[team].ToString(), cell);
-
-                name.normal.textColor = nameColor;
-                cell.normal.textColor = cellColor;
+                Color nameColor = cell.normal.textColor;
+                cell.normal.textColor = alive ? UiSkin.Text : UiSkin.Faint;
+                UiSkin.Rounded(new Rect(x + 4f, y + RowHeight * 0.5f - 4f, 8f, 8f), alive ? color : Color.Lerp(color, UiSkin.Faint, 0.6f), 2f);
+                GUI.Label(new Rect(x + 20f, y, levelX - x - 24f, RowHeight), GameState.TeamNames[team], cell);
+                var old = numberStyle.alignment;
+                numberStyle.alignment = TextAnchor.MiddleCenter;
+                GUI.Label(new Rect(levelX, y, levelWidth, RowHeight), (b != null ? b.TotalLevels : 0).ToString(), numberStyle);
+                GUI.Label(new Rect(killsX, y, killsWidth, RowHeight), GameState.Kills[team].ToString(), numberStyle);
+                numberStyle.alignment = old;
+                cell.normal.textColor = nameColor;
             }
+
+            if (!footer) return;
+            UiSkin.Rule(Panel.x + Pad, y + 2f, Panel.width - Pad * 2f);
+            var foot = new Rect(Panel.x, y + 4f, Panel.width, FooterHeight - 4f);
+            float fx = x + 4f, midY = foot.center.y;
+            if (State == Mode.Compact)
+            {
+                for (int team = rows; team < total; team++, fx += 11f)
+                    UiSkin.Rounded(new Rect(fx, midY - 4f, 8f, 8f), GameState.TeamColors[team], 2f);
+                GUI.Label(new Rect(fx + 6f, foot.y, 120f, foot.height), $"+{total - rows} more", UiSkin.Small);
+            }
+            else GUI.Label(new Rect(fx, foot.y, 120f, foot.height), "Show fewer", UiSkin.Small);
+            float keyWidth = UiSkin.Key(new Vector2(Panel.xMax - Pad - 44f, midY), "Tab");
+            if (GUI.Button(foot, GUIContent.none, GUIStyle.none)) Toggle();
         }
     }
 }
