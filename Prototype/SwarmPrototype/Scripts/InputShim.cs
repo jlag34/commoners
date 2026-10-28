@@ -18,6 +18,7 @@ namespace SwarmPrototype
         public static bool StatsPressed => Keyboard.current != null && Keyboard.current.tabKey.wasPressedThisFrame;
         public static bool DebugPressed => Keyboard.current != null && Keyboard.current.f1Key.wasPressedThisFrame;
         public static bool GearPressed => Keyboard.current != null && Keyboard.current.f2Key.wasPressedThisFrame;
+        public static bool LookPressed => Keyboard.current != null && Keyboard.current.f3Key.wasPressedThisFrame;
         public static bool SocialPressed => Keyboard.current != null && Keyboard.current.f6Key.wasPressedThisFrame;
         // Roughly 1 per mouse-wheel notch; a trackpad gives a stream of small values.
         public static float Scroll => Mouse.current != null ? Mouse.current.scroll.ReadValue().y / 120f : 0f;
@@ -48,6 +49,7 @@ namespace SwarmPrototype
         public static bool StatsPressed => Input.GetKeyDown(KeyCode.Tab);
         public static bool DebugPressed => Input.GetKeyDown(KeyCode.F1);
         public static bool GearPressed => Input.GetKeyDown(KeyCode.F2);
+        public static bool LookPressed => Input.GetKeyDown(KeyCode.F3);
         public static bool SocialPressed => Input.GetKeyDown(KeyCode.F6);
         // Roughly 1 per mouse-wheel notch; a trackpad gives a stream of small values.
         public static float Scroll => Input.mouseScrollDelta.y;

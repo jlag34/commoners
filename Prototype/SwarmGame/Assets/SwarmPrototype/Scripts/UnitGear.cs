@@ -19,8 +19,18 @@ namespace SwarmPrototype
     // art/current/00_commoner_base.png (art/blender/commoner_sculpt.py), the hair hidden
     // under helmets. Unarmored, the body is the commoner's tunic, team-coloured tabard,
     // belt, trousers and boots; under armor it is the Warrior body without head or tunic skirt.
+    // Look picks how much of that is worn (see UnitLook); F3 in a match cycles it live.
+    // Gear pieces are added after the Animator binds, so it is rebound after every change:
+    // otherwise its culling only knows the Warrior's own renderers, which the gear hides,
+    // and the model freezes as if it were off screen.
     public class UnitGear : MonoBehaviour
     {
+        // Warrior: the model as imported (its own body, head, sword and shoulder pads) with the
+        // first prototype's primitive armor, the MVP fallback. WarriorWithWeapon: the same plus
+        // one Blender cosmetic, the modeled pitchfork and swords. Commoner: the full sculpted
+        // commoner and the Blender armor and shield sets.
+        public enum UnitLook { Warrior, WarriorWithWeapon, Commoner }
+        public static UnitLook Look = UnitLook.Commoner;
         static readonly int[] TierStarts = { 1, 6, 11 };
         static readonly string[] ArmorSets = { null, "Armor_Leather", "Armor_Iron", "Armor_Gilded" };
         static readonly string[] ShieldSets = { null, "Shield_Bronze_Round", "Shield_Iron_Round", "Shield_Gilded_Tall" };
@@ -64,6 +74,8 @@ namespace SwarmPrototype
         readonly List<GameObject> baseParts = new List<GameObject>();
         GameObject commonerHair, commonerCollar;
         string detail = "";
+        UnitLook look;
+        int strengthLevel, armorLevel, healthLevel, speedLevel;
         readonly List<(Transform bone, Vector3 position)> armJoints = new List<(Transform, Vector3)>();
         Color team = new Color(0.1f, 0.33f, 0.85f);
         Vector3 weaponBoneScale = Vector3.one;
@@ -92,6 +104,8 @@ namespace SwarmPrototype
             gear.baseScale = model.transform.localScale;
             gear.team = team;
             gear.detail = hub ? HubDetail : "";
+            // The hub's menu clips are posed for the commoner's shortened arms.
+            gear.look = hub ? UnitLook.Commoner : Look;
             foreach (var t in model.GetComponentsInChildren<Transform>(true))
             {
                 if (!gear.bones.ContainsKey(t.name)) gear.bones[t.name] = t;
@@ -118,13 +132,7 @@ namespace SwarmPrototype
             }
             foreach (var name in ArmJoints)
                 if (gear.bones.TryGetValue(name, out var joint)) gear.armJoints.Add((joint, joint.localPosition * ArmScale));
-            if (gear.Dress(CommonerHead + gear.detail, 0, gear.baseParts))
-            {
-                if (gear.hair != null) gear.hair.enabled = false;
-                gear.commonerHair = gear.baseParts.Find(p => p.name == CommonerHair);
-                gear.commonerCollar = gear.baseParts.Find(p => p.name == CommonerCollar);
-                if (gear.commonerCollar != null) gear.commonerCollar.SetActive(false);
-            }
+            gear.DressHead();
             if (gear.sword != null)
             {
                 gear.swordScale = gear.sword.transform.localScale;
@@ -139,15 +147,64 @@ namespace SwarmPrototype
 
         public void Apply(int strengthLevel, int armorLevel, int healthLevel, int speedLevel = 0)
         {
+            this.strengthLevel = strengthLevel;
+            this.armorLevel = armorLevel;
+            this.healthLevel = healthLevel;
+            this.speedLevel = speedLevel;
             int s = Tier(strengthLevel), a = Tier(armorLevel), h = Tier(healthLevel);
+            bool dressed = s != strengthTier || a != armorTier;
             if (s != strengthTier) ApplySword(s);
             if (a != armorTier) ApplyArmor(a);
             if (h != healthTier) ApplyHealth(h);
             speedTier = Tier(speedLevel);
+            if (dressed) Rebind();
+        }
+
+        // Redresses this model in another look, keeping its upgrade levels.
+        public void SetLook(UnitLook newLook)
+        {
+            if (newLook == look) return;
+            // Primitive pieces placed while the spawn pop-in has the model at zero scale never show.
+            var pop = GetComponentInParent<PopIn>();
+            if (pop != null) pop.Finish();
+            foreach (var list in new[] { baseParts, armorPieces, weaponPieces })
+            {
+                foreach (var piece in list) Destroy(piece);
+                list.Clear();
+            }
+            commonerHair = commonerCollar = null;
+            if (hair != null) hair.enabled = true;
+            if (body != null) body.enabled = true;
+            foreach (var pad in shoulderPads) pad.enabled = true;
+            look = newLook;
+            DressHead();
+            strengthTier = armorTier = -1;
+            Apply(strengthLevel, armorLevel, healthLevel, speedLevel);
+        }
+
+        // The commoner's head and hair over the Warrior's; the collar waits for armor.
+        void DressHead()
+        {
+            if (look != UnitLook.Commoner || !Dress(CommonerHead + detail, 0, baseParts)) return;
+            if (hair != null) hair.enabled = false;
+            commonerHair = baseParts.Find(p => p.name == CommonerHair);
+            commonerCollar = baseParts.Find(p => p.name == CommonerCollar);
+            if (commonerCollar != null) commonerCollar.SetActive(false);
+        }
+
+        // Lets the Animator's culling see the pieces just added (see the class comment).
+        // The hub preview always animates, so it never needs this.
+        void Rebind()
+        {
+            var animator = GetComponent<Animator>();
+            if (animator != null && animator.isActiveAndEnabled && animator.cullingMode != AnimatorCullingMode.AlwaysAnimate)
+                animator.Rebind();
         }
 
         void LateUpdate()
         {
+            // Only the commoner and its gear are built on the shortened arms.
+            if (look != UnitLook.Commoner) return;
             foreach (var (bone, position) in armJoints) bone.localPosition = position;
         }
 
@@ -168,7 +225,7 @@ namespace SwarmPrototype
             foreach (var piece in weaponPieces) Destroy(piece);
             weaponPieces.Clear();
             if (weaponBone != null) weaponBone.localScale = weaponBoneScale;
-            if (Dress(WeaponSets[tier], tier, weaponPieces))
+            if (look != UnitLook.Warrior && Dress(WeaponSets[tier], tier, weaponPieces))
             {
                 if (sword != null) sword.enabled = false;
                 return;
@@ -221,6 +278,12 @@ namespace SwarmPrototype
             armorTier = tier;
             foreach (var piece in armorPieces) Destroy(piece);
             armorPieces.Clear();
+            if (look != UnitLook.Commoner)
+            {
+                // The Warrior keeps its own body and pads under the first prototype's armor.
+                if (tier > 0) BuildPrimitiveArmor(tier);
+                return;
+            }
             foreach (var pad in shoulderPads) pad.enabled = false;
             if (body != null) body.enabled = true;
             if (commonerHair != null) commonerHair.SetActive(!Helmeted[tier]);

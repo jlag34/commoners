@@ -4,20 +4,26 @@ using UnityEngine.Playables;
 
 namespace SwarmPrototype
 {
-    // Plays idle/run/attack/death clips on a unit's model with a small Playables
+    // Plays idle/walk/run/attack/death clips on a unit's model with a small Playables
     // graph, so no AnimatorController asset is needed. Clips are picked from the
     // model's FBX by name. Missing clips are skipped.
     public class UnitAnimator : MonoBehaviour
     {
         const float BlendSpeed = 8f;
         const float RunThreshold = 0.6f;
+        // Below this speed a moving unit walks instead of running.
+        const float WalkBelow = 2f;
+        // Ground speed the walk clip's planted foot moves at, at the model's in-game height
+        // (measured with Editor/AnimCheck: about 1.2-1.55 m/s).
+        const float WalkClipSpeed = 1.4f;
 
-        enum State { Idle, Run, Attack, Death }
+        enum State { Idle, Walk, Run, Attack, Death }
 
         PlayableGraph graph;
         AnimationMixerPlayable mixer;
-        AnimationClipPlayable[] playables = new AnimationClipPlayable[4];
-        float[] weights = new float[4];
+        AnimationClipPlayable[] playables = new AnimationClipPlayable[5];
+        float[] weights = new float[5];
+        bool hasWalk;
         Rigidbody body;
         State state;
         float attackUntil;
@@ -26,8 +32,9 @@ namespace SwarmPrototype
         public static UnitAnimator Attach(GameObject model, AnimationClip[] clips, Rigidbody body, float moveSpeed)
         {
             // First name that matches wins, so list the best fit first.
-            var source = new AnimationClip[4];
+            var source = new AnimationClip[5];
             source[(int)State.Idle] = Find(clips, "idle_weapon", "idle");
+            source[(int)State.Walk] = Find(clips, "walk");
             source[(int)State.Run] = Find(clips, "run_weapon", "run", "sprint", "walk");
             source[(int)State.Attack] = Find(clips, "sword_attack", "attack-melee", "attack", "punch");
             source[(int)State.Death] = Find(clips, "death", "die");
@@ -40,6 +47,7 @@ namespace SwarmPrototype
 
             var self = model.AddComponent<UnitAnimator>();
             self.body = body;
+            self.hasWalk = source[(int)State.Walk] != null;
             self.Build(animator, source);
             self.SetMoveSpeed(moveSpeed);
             return self;
@@ -78,7 +86,8 @@ namespace SwarmPrototype
             for (int i = 0; i < source.Length; i++)
             {
                 // Fall back to idle (or run) when a clip is missing.
-                var clip = source[i] != null ? source[i] : (source[0] != null ? source[0] : source[1]);
+                var idle = source[(int)State.Idle] != null ? source[(int)State.Idle] : source[(int)State.Run];
+                var clip = source[i] != null ? source[i] : idle;
                 playables[i] = AnimationClipPlayable.Create(graph, clip);
                 playables[i].SetApplyFootIK(false);
                 graph.Connect(playables[i], 0, mixer, i);
@@ -86,8 +95,9 @@ namespace SwarmPrototype
             var output = AnimationPlayableOutput.Create(graph, "Unit", animator);
             output.SetSourcePlayable(mixer);
             // Random start so a swarm doesn't move in lockstep.
-            playables[0].SetTime(Random.value * 2f);
-            playables[1].SetTime(Random.value * 2f);
+            playables[(int)State.Idle].SetTime(Random.value * 2f);
+            playables[(int)State.Walk].SetTime(Random.value * 2f);
+            playables[(int)State.Run].SetTime(Random.value * 2f);
             weights[0] = 1f;
             mixer.SetInputWeight(0, 1f);
             graph.Play();
@@ -130,10 +140,13 @@ namespace SwarmPrototype
                     speed = v.magnitude;
                 }
                 if (Time.time < attackUntil) state = State.Attack;
-                else state = speed > RunThreshold ? State.Run : State.Idle;
+                else if (speed <= RunThreshold) state = State.Idle;
+                else state = hasWalk && speed < WalkBelow ? State.Walk : State.Run;
+                playables[(int)State.Walk].SetSpeed(Mathf.Clamp(speed / WalkClipSpeed, 0.6f, 1.45f));
                 playables[(int)State.Run].SetSpeed(runSpeedScale);
-                // FBX clips import as non-looping by default, so wrap idle and run by hand.
+                // FBX clips import as non-looping by default, so wrap idle, walk and run by hand.
                 Loop(playables[(int)State.Idle]);
+                Loop(playables[(int)State.Walk]);
                 Loop(playables[(int)State.Run]);
             }
 

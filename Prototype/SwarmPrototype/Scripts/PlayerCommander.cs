@@ -70,6 +70,7 @@ namespace SwarmPrototype
             if (InputShim.StatsPressed) scoreBoard.Open = !scoreBoard.Open;
             if (InputShim.DebugPressed) debug = Unit.DebugDraw = !debug;
             if (InputShim.GearPressed) CycleGear();
+            if (InputShim.LookPressed) CycleLook();
 
             if (playerBase != null && cam != null && InputShim.LeftClickDown && !OverUi(InputShim.MousePosition))
             {
@@ -96,6 +97,20 @@ namespace SwarmPrototype
             int level = GearLevels[gearStep];
             foreach (var id in new[] { "strength", "armor", "health", "moveSpeed" }) playerBase.DebugSetLevel(id, level);
             GameState.Toast?.Invoke($"Debug: gear level {level} (tier {UnitGear.Tier(level)})");
+        }
+
+        // F3 (dev): switch every unit between the original Warrior, the Warrior with the
+        // modeled weapon, and the sculpted commoner, to compare them in motion.
+        void CycleLook()
+        {
+            var looks = (UnitGear.UnitLook[])System.Enum.GetValues(typeof(UnitGear.UnitLook));
+            UnitGear.Look = looks[((int)UnitGear.Look + 1) % looks.Length];
+            foreach (var c in Combatant.All)
+            {
+                var gear = c.GetComponentInChildren<UnitGear>();
+                if (gear != null) gear.SetLook(UnitGear.Look);
+            }
+            GameState.Toast?.Invoke($"Debug: unit look {UnitGear.Look}");
         }
 
         bool OverUi(Vector2 mouse) =>
