@@ -167,9 +167,15 @@ namespace SwarmPrototype
         void OnGUI()
         {
             if (cam == null) return;
+            // World-anchored overlays first, in raw screen pixels.
             DrawHealthBars();
-            shop.Draw(playerBase);
             FloatingText.Draw(cam);
+            DrawCampLabel();
+            if (debug) DrawDebug();
+
+            // HUD chrome in the 1600x900 design space, scaled to the screen.
+            UiSkin.Begin();
+            shop.Draw(playerBase);
             miniMap.Draw(cam);
             if (miniMap.Clicked(out Vector3 target, out int button))
             {
@@ -186,21 +192,20 @@ namespace SwarmPrototype
             if (hud.HomeClicked && rtsCamera != null) rtsCamera.FocusHome();
             if (hud.EnemyClicked && rtsCamera != null) rtsCamera.FocusNextEnemy();
             scoreBoard.Draw(bases);
-            DrawCampLabel();
-            if (debug) DrawDebug();
 
             if (GameState.Over)
             {
                 if (bigLabel == null)
-                    bigLabel = new GUIStyle(GUI.skin.label) { fontSize = 48, alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold };
+                    bigLabel = new GUIStyle(UiSkin.Big) { fontSize = 48, alignment = TextAnchor.MiddleCenter };
                 string text = GameState.Winner == GameState.PlayerTeam ? "Victory" : "Defeat";
-                GUI.Label(new Rect(0, Screen.height * 0.3f, Screen.width, 80), text, bigLabel);
-                float y = Screen.height * 0.3f + 90f;
-                if (UiSkin.GoldButton(new Rect(Screen.width * 0.5f - 170f, y, 160f, 48f), "Play again", null, "R")) pause.Restart();
-                if (UiSkin.Button(new Rect(Screen.width * 0.5f + 10f, y, 160f, 48f), "Quit to home  (M)")) pause.QuitToHome();
+                GUI.Label(new Rect(0, UiSkin.Height * 0.3f, UiSkin.Width, 80), text, bigLabel);
+                float y = UiSkin.Height * 0.3f + 90f;
+                if (UiSkin.GoldButton(new Rect(UiSkin.Width * 0.5f - 170f, y, 160f, 48f), "Play again", null, "R")) pause.Restart();
+                if (UiSkin.Button(new Rect(UiSkin.Width * 0.5f + 10f, y, 160f, 48f), "Quit to home  (M)")) pause.QuitToHome();
             }
 
             pause.Draw();
+            UiSkin.End();
         }
 
         // F1: each unit's brain state over its head, for chasing down stuck units.

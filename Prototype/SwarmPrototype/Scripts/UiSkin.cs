@@ -29,6 +29,27 @@ namespace SwarmPrototype
 
         public const float Radius = 14f;
 
+        // ---- Scaling ----------------------------------------------------------------------
+        // HUD chrome is laid out in a 1600x900 design space and scaled to the screen like the
+        // hub canvas (smaller of the two ratios), so a small Game view or a 4K monitor keeps
+        // the mock's proportions. Between Begin and End, use Width / Height instead of Screen.*
+        // and GuiPoint for raw mouse positions.
+        public const float DesignWidth = 1600f, DesignHeight = 900f;
+        public static float Scale { get; private set; } = 1f;
+        public static float Width => Screen.width / Scale;
+        public static float Height => Screen.height / Scale;
+
+        public static void Begin()
+        {
+            Scale = Mathf.Max(0.3f, Mathf.Min(Screen.width / DesignWidth, Screen.height / DesignHeight));
+            GUI.matrix = Matrix4x4.Scale(new Vector3(Scale, Scale, 1f));
+        }
+
+        public static void End() => GUI.matrix = Matrix4x4.identity;
+
+        // Design-space point for a raw Input mouse position (y up).
+        public static Vector2 GuiPoint(Vector2 screenMouse) => new Vector2(screenMouse.x / Scale, (Screen.height - screenMouse.y) / Scale);
+
         static GUIStyle title, header, cell, bold, number, big, small, tiny, buttonLabel, goldLabel, keyLabel;
         static Texture2D circle;
         static Font regular, semiBold, bold700;

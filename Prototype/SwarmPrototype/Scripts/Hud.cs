@@ -10,8 +10,8 @@ namespace SwarmPrototype
     // ScoreBoard, the minimap is MiniMap.
     public class Hud
     {
-        const float Edge = 16f;
-        const float PillHeight = 52f;
+        const float Edge = 14f;
+        const float PillHeight = 44f;
         const float ToastLife = 4f;
 
         public Rect Panel { get; private set; }
@@ -52,7 +52,7 @@ namespace SwarmPrototype
 
         public bool Covers(Vector2 mouse)
         {
-            var p = new Vector2(mouse.x, Screen.height - mouse.y);
+            var p = UiSkin.GuiPoint(mouse);
             return Panel.Contains(p) || ClockPanel.Contains(p) || Buttons.Contains(p) || Bar.Contains(p) || (HelpOpen && HelpPanel.Contains(p));
         }
 
@@ -112,7 +112,7 @@ namespace SwarmPrototype
             int seconds = Mathf.Max(0, Mathf.FloorToInt(GameState.MatchMinutes * 60f));
             string text = $"{seconds / 60}:{seconds % 60:00}";
             float w = UiSkin.Number.CalcSize(new GUIContent(text)).x + 40f;
-            ClockPanel = new Rect(Screen.width * 0.5f - w * 0.5f, Edge, w, 40f);
+            ClockPanel = new Rect(UiSkin.Width * 0.5f - w * 0.5f, Edge, w, 36f);
             UiSkin.Panel(ClockPanel, 12f);
             var style = UiSkin.Number;
             var old = style.alignment;
@@ -123,8 +123,8 @@ namespace SwarmPrototype
 
         void DrawTopRight()
         {
-            const float size = 52f, gap = 8f;
-            Buttons = new Rect(Screen.width - Edge - size * 3f - gap * 2f, Edge, size * 3f + gap * 2f, size);
+            const float size = 44f, gap = 8f;
+            Buttons = new Rect(UiSkin.Width - Edge - size * 3f - gap * 2f, Edge, size * 3f + gap * 2f, size);
             var help = new Rect(Buttons.x, Buttons.y, size, size);
             var social = new Rect(help.xMax + gap, Buttons.y, size, size);
             var menu = new Rect(social.xMax + gap, Buttons.y, size, size);
@@ -141,10 +141,10 @@ namespace SwarmPrototype
             int units = mine != null ? mine.AliveUnits : 0;
             int cap = mine != null ? mine.MaxUnits : 0;
 
-            const float height = 72f;
-            const float unitsWidth = 170f, actionWidth = 170f, shopWidth = 150f, pad = 16f;
+            const float height = 60f;
+            const float unitsWidth = 150f, actionWidth = 150f, shopWidth = 130f, pad = 14f;
             float width = pad + unitsWidth + 1f + actionWidth * 2f + shopWidth + pad;
-            Bar = new Rect(Screen.width * 0.5f - width * 0.5f, Screen.height - Edge - height, width, height);
+            Bar = new Rect(UiSkin.Width * 0.5f - width * 0.5f, UiSkin.Height - Edge - height, width, height);
             UiSkin.Panel(Bar, 16f);
 
             // Units alive / cap, then a segmented bar in the team color.
@@ -153,7 +153,7 @@ namespace SwarmPrototype
             string alive = units.ToString();
             var big = UiSkin.Big;
             float aw = big.CalcSize(new GUIContent(alive)).x;
-            GUI.Label(new Rect(x, midY - 24f, aw + 4f, 30f), alive, big);
+            GUI.Label(new Rect(x, midY - 22f, aw + 4f, 30f), alive, big);
             if (cap > 0)
             {
                 var mutedBig = UiSkin.Big;
@@ -161,9 +161,9 @@ namespace SwarmPrototype
                 mutedBig.normal.textColor = UiSkin.Muted;
                 string capText = "/" + cap;
                 float cw = mutedBig.CalcSize(new GUIContent(capText)).x;
-                GUI.Label(new Rect(x + aw, midY - 24f, cw + 4f, 30f), capText, mutedBig);
+                GUI.Label(new Rect(x + aw, midY - 22f, cw + 4f, 30f), capText, mutedBig);
                 mutedBig.normal.textColor = old;
-                if (units >= cap) GUI.Label(new Rect(x + aw + cw + 8f, midY - 20f, 40f, 22f), "MAX", UiSkin.Tiny);
+                if (units >= cap) GUI.Label(new Rect(x + aw + cw + 8f, midY - 18f, 40f, 22f), "MAX", UiSkin.Tiny);
             }
             int segments = cap > 0 ? Mathf.Min(cap, 20) : 10;
             float segWidth = (unitsWidth - 30f - (segments - 1) * 3f) / segments;
@@ -172,18 +172,18 @@ namespace SwarmPrototype
             for (int i = 0; i < segments; i++)
             {
                 bool on = (i + 0.5f) / segments <= filled;
-                UiSkin.Rounded(new Rect(x + i * (segWidth + 3f), midY + 12f, segWidth, 5f), on ? teamColor : new Color(1f, 1f, 1f, 0.1f), 2f);
+                UiSkin.Rounded(new Rect(x + i * (segWidth + 3f), midY + 10f, segWidth, 5f), on ? teamColor : new Color(1f, 1f, 1f, 0.1f), 2f);
             }
 
             x = Bar.x + pad + unitsWidth;
-            UiSkin.Fill(new Rect(x, Bar.y + 20f, 1f, height - 40f), UiSkin.Border);
+            UiSkin.Fill(new Rect(x, Bar.y + 16f, 1f, height - 32f), UiSkin.Border);
             x += 1f;
 
             if (Action(new Rect(x, Bar.y, actionWidth, height), "home", "Home", "Space")) HomeClicked = true;
             x += actionWidth;
             if (Action(new Rect(x, Bar.y, actionWidth, height), "target", "Next enemy", "E")) EnemyClicked = true;
             x += actionWidth;
-            return UiSkin.GoldButton(new Rect(x, Bar.y + 12f, shopWidth, height - 24f), shopOpen ? "Close" : "Shop", "bag", "B");
+            return UiSkin.GoldButton(new Rect(x, Bar.y + 10f, shopWidth, height - 20f), shopOpen ? "Close" : "Shop", "bag", "B");
         }
 
         // Icon, caption and keycap on a transparent hit area; lights up on hover.
@@ -203,9 +203,9 @@ namespace SwarmPrototype
 
         void DrawHelp()
         {
-            const float width = 360f, row = 24f;
+            const float width = 340f, row = 24f;
             float height = 16f + 24f + Controls.Length * row + 12f;
-            HelpPanel = new Rect(Screen.width - Edge - width, Buttons.yMax + 12f, width, height);
+            HelpPanel = new Rect(UiSkin.Width - Edge - width, Buttons.yMax + 10f, width, height);
             UiSkin.Panel(HelpPanel);
             float x = HelpPanel.x + 16f, y = HelpPanel.y + 14f;
             GUI.Label(new Rect(x, y, 200f, 20f), "CONTROLS", UiSkin.Header);

@@ -10,12 +10,12 @@ namespace SwarmPrototype
     {
         public enum Mode { Hidden, Compact, Full }
 
-        const float Width = 300f;
-        const float Edge = 16f;
-        const float Top = 16f + 52f + 12f;   // under the icon buttons
-        const float RowHeight = 32f;
-        const float HeaderHeight = 36f;
-        const float FooterHeight = 36f;
+        const float Width = 270f;
+        const float Edge = 14f;
+        const float Top = 14f + 44f + 10f;   // under the icon buttons
+        const float RowHeight = 30f;
+        const float HeaderHeight = 34f;
+        const float FooterHeight = 34f;
         const float Pad = 12f;
         const int CompactRows = 4;
 
@@ -26,7 +26,7 @@ namespace SwarmPrototype
         public void Toggle() => State = State == Mode.Full ? Mode.Compact : Mode.Full;
         public void Hide() => State = Mode.Hidden;
 
-        public bool Covers(Vector2 mouse) => Open && Panel.Contains(new Vector2(mouse.x, Screen.height - mouse.y));
+        public bool Covers(Vector2 mouse) => Open && Panel.Contains(UiSkin.GuiPoint(mouse));
 
         public void Draw(Spawner[] bases)
         {
@@ -35,7 +35,7 @@ namespace SwarmPrototype
             int rows = State == Mode.Full ? total : Mathf.Min(CompactRows, total);
             bool footer = total > rows || State == Mode.Full;
             float height = HeaderHeight + rows * RowHeight + (footer ? FooterHeight : Pad * 0.5f) + 4f;
-            Panel = new Rect(Screen.width - Edge - Width, Top, Width, height);
+            Panel = new Rect(UiSkin.Width - Edge - Width, Top, Width, height);
             UiSkin.Panel(Panel);
 
             float x = Panel.x + Pad;

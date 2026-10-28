@@ -7,9 +7,9 @@ namespace SwarmPrototype
     // jumps the camera there, right-click sets the rally point there.
     public class MiniMap
     {
-        const float Size = 220f;
+        const float Size = 200f;
         const float Pad = 8f;
-        const float Edge = 16f;
+        const float Edge = 14f;
 
         public Rect Panel { get; private set; }
         public Rect Map { get; private set; }
@@ -59,7 +59,7 @@ namespace SwarmPrototype
             }
         }
 
-        public bool Covers(Vector2 mouse) => Panel.Contains(new Vector2(mouse.x, Screen.height - mouse.y));
+        public bool Covers(Vector2 mouse) => Panel.Contains(UiSkin.GuiPoint(mouse));
 
         // GUI-space point for a world position.
         Vector2 At(Vector3 world)
@@ -91,7 +91,7 @@ namespace SwarmPrototype
         public void Draw(Camera cam)
         {
             if (layout == null) return;
-            Panel = new Rect(Edge, Screen.height - Edge - Size - Pad * 2f, Size + Pad * 2f, Size + Pad * 2f);
+            Panel = new Rect(Edge, UiSkin.Height - Edge - Size - Pad * 2f, Size + Pad * 2f, Size + Pad * 2f);
             Map = new Rect(Panel.x + Pad, Panel.y + Pad, Size, Size);
             UiSkin.Panel(Panel, 18f);
             layout.DrawPreview(Map, team => bases == null || (team < bases.Length && bases[team] != null && !bases[team].IsDead));

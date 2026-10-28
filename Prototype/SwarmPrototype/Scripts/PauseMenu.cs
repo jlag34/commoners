@@ -34,10 +34,10 @@ namespace SwarmPrototype
         public void Draw()
         {
             if (!Open) return;
-            UiSkin.Fill(new Rect(0f, 0f, Screen.width, Screen.height), new Color(0f, 0f, 0f, 0.45f));
+            UiSkin.Fill(new Rect(0f, 0f, UiSkin.Width, UiSkin.Height), new Color(0f, 0f, 0f, 0.45f));
 
             float height = Pad + 28f + 10f + (ButtonHeight + 8f) * 3 + Pad - 8f;
-            Panel = new Rect((Screen.width - Width) * 0.5f, (Screen.height - height) * 0.5f, Width, height);
+            Panel = new Rect((UiSkin.Width - Width) * 0.5f, (UiSkin.Height - height) * 0.5f, Width, height);
             UiSkin.Panel(Panel);
 
             float y = Panel.y + Pad;

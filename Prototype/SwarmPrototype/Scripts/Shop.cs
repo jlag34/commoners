@@ -27,7 +27,7 @@ namespace SwarmPrototype
         readonly List<int> inTab = new List<int>();
 
         // Screen-space (y up) rect of the panel, so clicks on it don't fall through to the map.
-        public bool Covers(Vector2 mouse) => Open && panel.Contains(new Vector2(mouse.x, Screen.height - mouse.y));
+        public bool Covers(Vector2 mouse) => Open && panel.Contains(UiSkin.GuiPoint(mouse));
 
         public void Draw(Spawner tower)
         {
@@ -62,7 +62,7 @@ namespace SwarmPrototype
             float gridWidth = labelWidth + columns * Tile + (columns - 1) * Gap;
             float width = gridWidth + Pad * 2f;
             float height = HeaderHeight + TabHeight + rows * (Tile + Gap) + InfoHeight + Pad;
-            panel = new Rect((Screen.width - width) * 0.5f, Screen.height - height - 30f, width, height);
+            panel = new Rect((UiSkin.Width - width) * 0.5f, UiSkin.Height - height - 90f, width, height);
             UiSkin.Panel(panel);
 
             float x = panel.x + Pad;
