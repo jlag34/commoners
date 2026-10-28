@@ -32,7 +32,11 @@ namespace SwarmPrototype
             GameState.Toast = text => toasts.Add((text, Time.time + ToastLife));
         }
 
-        public bool Covers(Vector2 mouse) => Panel.Contains(new Vector2(mouse.x, Screen.height - mouse.y));
+        public bool Covers(Vector2 mouse)
+        {
+            var p = new Vector2(mouse.x, Screen.height - mouse.y);
+            return Panel.Contains(p) || ClockPanel.Contains(p);
+        }
 
         // Returns true when the Shop button was clicked this frame.
         public bool Draw(Spawner mine, bool shopOpen)
@@ -61,6 +65,8 @@ namespace SwarmPrototype
             if (new Rect(unitsStart, Panel.y, x - unitsStart, Panel.height).Contains(mouse))
                 tooltip = cap > 0 ? "Units alive / max. One spawns every few seconds until the cap; buy Unit Count in the shop to raise it." : "Units alive. One spawns every few seconds; no cap.";
 
+            DrawClock();
+
             var menuRect = new Rect(Panel.xMax - 78f, Panel.y + 6f, 68f, Height - 12f);
             MenuClicked = UiSkin.Button(menuRect, "Menu  (Esc)");
             var shopRect = new Rect(menuRect.x - 84f, Panel.y + 6f, 76f, Height - 12f);
@@ -72,6 +78,21 @@ namespace SwarmPrototype
             GUI.Label(new Rect(232f, Screen.height - 20f, Screen.width - 244f, 16f),
                 "Right-click: rally point    B / click tower: shop    Tab: players    WASD, edge, middle-drag: pan    Scroll: zoom    Space: home    E: next enemy    Minimap: click to look, right-click to rally    R: restart    Esc: menu", UiSkin.Small);
             return clicked;
+        }
+
+        // Match clock, top centre: minutes:seconds since the bases were placed. It stops with the pause menu.
+        public Rect ClockPanel { get; private set; }
+        void DrawClock()
+        {
+            int seconds = Mathf.Max(0, Mathf.FloorToInt(GameState.MatchMinutes * 60f));
+            string text = $"{seconds / 60}:{seconds % 60:00}";
+            ClockPanel = new Rect(Screen.width * 0.5f - 46f, 12f, 92f, Height);
+            UiSkin.Panel(ClockPanel);
+            var style = UiSkin.Number;
+            var old = style.alignment;
+            style.alignment = TextAnchor.MiddleCenter;
+            GUI.Label(ClockPanel, text, style);
+            style.alignment = old;
         }
 
         void DrawTooltip()

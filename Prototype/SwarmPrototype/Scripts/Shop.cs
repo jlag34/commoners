@@ -6,12 +6,14 @@ namespace SwarmPrototype
     // The tower shop as a grid of icon tiles, Warcraft style: one tile per
     // upgrade, level badge in the corner, click to buy. Hovering a tile shows
     // what it does and what the next level costs; with nothing hovered the info
-    // strip explains where skulls and essences come from.
+    // strip explains where skulls and essences come from. The Greater tab is one
+    // row per essence tier (Lesser, Greater, Elite) with the tier's icon at the left.
     public class Shop
     {
         const float Tile = 56f;
         const float Gap = 6f;
         const int Columns = 4;
+        const float RowLabel = 74f;
         const float Pad = 12f;
         const float HeaderHeight = 34f;
         const float TabHeight = 28f;
@@ -41,8 +43,23 @@ namespace SwarmPrototype
             }
             if (!tabs.Contains(tab) && tabs.Count > 0) { tab = tabs[0]; return; }
 
-            int rows = Mathf.Max(1, Mathf.CeilToInt(inTab.Count / (float)Columns));
-            float gridWidth = Columns * Tile + (Columns - 1) * Gap;
+            // Stats: a plain grid. Anything essence-gated: one row per tier, as wide as the longest row.
+            bool byTier = inTab.Exists(i => tower.EssenceTier(i) >= 0);
+            int columns = Columns, rows;
+            float labelWidth = 0f;
+            if (byTier)
+            {
+                rows = GameState.EssenceTiers.Length;
+                columns = 1;
+                for (int t = 0; t < rows; t++)
+                {
+                    int tier = t;
+                    columns = Mathf.Max(columns, inTab.FindAll(i => tower.EssenceTier(i) == tier).Count);
+                }
+                labelWidth = RowLabel;
+            }
+            else rows = Mathf.Max(1, Mathf.CeilToInt(inTab.Count / (float)Columns));
+            float gridWidth = labelWidth + columns * Tile + (columns - 1) * Gap;
             float width = gridWidth + Pad * 2f;
             float height = HeaderHeight + TabHeight + rows * (Tile + Gap) + InfoHeight + Pad;
             panel = new Rect((Screen.width - width) * 0.5f, Screen.height - height - 30f, width, height);
@@ -68,12 +85,33 @@ namespace SwarmPrototype
             y += TabHeight;
             int hovered = -1;
             Vector2 mouse = Event.current.mousePosition;
-            for (int n = 0; n < inTab.Count; n++)
+            if (byTier)
             {
-                int i = inTab[n];
-                var rect = new Rect(x + (n % Columns) * (Tile + Gap), y + (n / Columns) * (Tile + Gap), Tile, Tile);
-                if (rect.Contains(mouse)) hovered = i;
-                DrawTile(tower, i, rect, hovered == i);
+                for (int tier = 0; tier < rows; tier++)
+                {
+                    float rowY = y + tier * (Tile + Gap);
+                    GUI.DrawTexture(new Rect(x, rowY + 10f, 18f, 18f), Icons.Get(GameState.EssenceTiers[tier]));
+                    GUI.Label(new Rect(x + 22f, rowY + 8f, labelWidth - 22f, 22f), GameState.EssenceLabels[tier], UiSkin.Bold);
+                    int column = 0;
+                    foreach (int i in inTab)
+                    {
+                        if (tower.EssenceTier(i) != tier) continue;
+                        var rect = new Rect(x + labelWidth + column * (Tile + Gap), rowY, Tile, Tile);
+                        if (rect.Contains(mouse)) hovered = i;
+                        DrawTile(tower, i, rect, hovered == i);
+                        column++;
+                    }
+                }
+            }
+            else
+            {
+                for (int n = 0; n < inTab.Count; n++)
+                {
+                    int i = inTab[n];
+                    var rect = new Rect(x + (n % Columns) * (Tile + Gap), y + (n / Columns) * (Tile + Gap), Tile, Tile);
+                    if (rect.Contains(mouse)) hovered = i;
+                    DrawTile(tower, i, rect, hovered == i);
+                }
             }
 
             var info = new Rect(panel.x + Pad, panel.yMax - InfoHeight - Pad * 0.5f, panel.width - Pad * 2f, InfoHeight);
@@ -166,7 +204,7 @@ namespace SwarmPrototype
                 GUI.Label(new Rect(x, y + 18f, area.width, 20f), "Hover a tile to see what it does. Click to buy.", UiSkin.Small);
                 return;
             }
-            GUI.Label(new Rect(x, y, area.width, 20f), "Greater: costs gold, skulls and an essence per level.", UiSkin.Small);
+            GUI.Label(new Rect(x, y, area.width, 20f), "Greater: gold, skulls and one essence per level. Each row is an essence tier.", UiSkin.Small);
             float lx = x;
             lx = LegendIcon(lx, y + 20f, "skull", "any neutral kill");
             lx = LegendIcon(lx, y + 20f, "lesser", "any camp");
