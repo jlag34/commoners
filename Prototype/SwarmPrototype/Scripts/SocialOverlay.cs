@@ -504,10 +504,13 @@ namespace SwarmPrototype
             return row;
         }
 
+        // Fixed 22px slot so a stretching row (tab button, friend row) can't pull the disc tall.
         static void Badge(Transform parent, int count)
         {
-            var disc = Disc(parent, "Badge", 22, HubTheme.Gold);
-            Size(disc, 22, 22, minWidth: 22, minHeight: 22);
+            var slot = Rect(parent, "Badge");
+            Size(slot, 22, 22, minWidth: 22, minHeight: 22);
+            var disc = Disc(slot, "Disc", 22, HubTheme.Gold);
+            Place(disc.rectTransform, new Vector2(0.5f, 0.5f), Vector2.zero);
             var label = HubTheme.Text(disc.transform, "Count", count > 99 ? "99+" : count.ToString(), 12, HubTheme.OnGold, HubTheme.Face.BodyBold, 0, TextAlignmentOptions.Center, false);
             Stretch(label.rectTransform);
         }

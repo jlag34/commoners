@@ -80,9 +80,10 @@ namespace SwarmPrototype
             group.childControlWidth = group.childControlHeight = true;
             group.childForceExpandWidth = false;
             group.childForceExpandHeight = controlHeight;
-            // A force-expanding group reports flexible height 1 to its parent, which would let a
-            // column hand this row every spare pixel. Pin it; Size() can still raise it later.
-            if (controlHeight) rect.gameObject.AddComponent<LayoutElement>().flexibleHeight = 0;
+            // A horizontal group reports its tallest child's flexible height (1 when it force-expands,
+            // or when it holds a Spacer), which would let a column hand this row every spare pixel.
+            // Pin it; Size() can still raise it later.
+            rect.gameObject.AddComponent<LayoutElement>().flexibleHeight = 0;
             return rect;
         }
 
