@@ -170,14 +170,14 @@ namespace SwarmPrototype
         void OnGUI()
         {
             if (cam == null) return;
-            // World-anchored overlays first, in raw screen pixels.
+            // Health bars in raw screen pixels; every label from here on is in the 1600x900
+            // design space, scaled to the screen, so world text and HUD text share one size floor.
             DrawHealthBars();
+            UiSkin.Begin();
             FloatingText.Draw(cam);
             DrawCampLabel();
             if (debug) DrawDebug();
 
-            // HUD chrome in the 1600x900 design space, scaled to the screen.
-            UiSkin.Begin();
             shop.Draw(playerBase);
             miniMap.Draw(cam);
             if (miniMap.Clicked(out Vector3 target, out int button))
@@ -222,9 +222,10 @@ namespace SwarmPrototype
                 if (screen.z < 0f) continue;
                 string text = u.DebugState;
                 float width = style.CalcSize(new GUIContent(text)).x + 8f;
-                var rect = new Rect(screen.x - width * 0.5f, Screen.height - screen.y - 16f, width, 16f);
+                Vector2 at = UiSkin.GuiPoint(screen);
+                var rect = new Rect(at.x - width * 0.5f, at.y - 18f, width, 18f);
                 UiSkin.Fill(rect, new Color(0f, 0f, 0f, 0.6f));
-                GUI.Label(new Rect(rect.x + 4f, rect.y, width, 16f), text, style);
+                GUI.Label(new Rect(rect.x + 4f, rect.y, width, 18f), text, style);
             }
         }
 
@@ -257,7 +258,8 @@ namespace SwarmPrototype
             float textWidth = style.CalcSize(new GUIContent(text)).x;
             float iconWidth = icon != null ? 24f : 0f;
             float width = textWidth + iconWidth + 30f;
-            var rect = new Rect(screen.x - width * 0.5f, Screen.height - screen.y - height * 0.5f, width, height);
+            Vector2 at = UiSkin.GuiPoint(screen);
+            var rect = new Rect(at.x - width * 0.5f, at.y - height * 0.5f, width, height);
             UiSkin.Pill(rect, fill);
             float x = rect.x + 14f;
             if (icon != null)

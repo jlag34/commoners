@@ -50,22 +50,25 @@ namespace SwarmPrototype
         // Design-space point for a raw Input mouse position (y up).
         public static Vector2 GuiPoint(Vector2 screenMouse) => new Vector2(screenMouse.x / Scale, (Screen.height - screenMouse.y) / Scale);
 
+        // Smallest text anywhere in a match, in design-space pixels.
+        public const int MinFontSize = 12;
+
         static GUIStyle title, header, cell, bold, number, big, small, tiny, buttonLabel, goldLabel, keyLabel;
         static Texture2D circle;
         static Font regular, semiBold, bold700;
         static bool fontsLoaded;
 
         public static GUIStyle Title => title ?? (title = Make(14, Bold700, TextAnchor.MiddleLeft, Text));
-        public static GUIStyle Header => header ?? (header = Make(11, Bold700, TextAnchor.MiddleLeft, Muted));
+        public static GUIStyle Header => header ?? (header = Make(12, Bold700, TextAnchor.MiddleLeft, Muted));
         public static GUIStyle Cell => cell ?? (cell = Make(13, Regular, TextAnchor.MiddleLeft, Text));
         public static GUIStyle Bold => bold ?? (bold = Make(13, SemiBold, TextAnchor.MiddleLeft, Text));
         public static GUIStyle Number => number ?? (number = Make(16, Bold700, TextAnchor.MiddleLeft, Text));
         public static GUIStyle Big => big ?? (big = Make(22, Bold700, TextAnchor.MiddleLeft, Text));
-        public static GUIStyle Small => small ?? (small = Make(11, Regular, TextAnchor.MiddleLeft, Muted));
-        public static GUIStyle Tiny => tiny ?? (tiny = Make(10, Bold700, TextAnchor.MiddleLeft, Gold));
+        public static GUIStyle Small => small ?? (small = Make(12, Regular, TextAnchor.MiddleLeft, Muted));
+        public static GUIStyle Tiny => tiny ?? (tiny = Make(12, Bold700, TextAnchor.MiddleLeft, Gold));
         static GUIStyle ButtonLabel => buttonLabel ?? (buttonLabel = Make(13, SemiBold, TextAnchor.MiddleCenter, Text));
         static GUIStyle GoldLabel => goldLabel ?? (goldLabel = Make(14, Bold700, TextAnchor.MiddleCenter, OnGold));
-        static GUIStyle KeyLabel => keyLabel ?? (keyLabel = Make(10, SemiBold, TextAnchor.MiddleCenter, Muted));
+        static GUIStyle KeyLabel => keyLabel ?? (keyLabel = Make(12, SemiBold, TextAnchor.MiddleCenter, Muted));
 
         static Font Regular { get { LoadFonts(); return regular; } }
         static Font SemiBold { get { LoadFonts(); return semiBold; } }
@@ -82,7 +85,7 @@ namespace SwarmPrototype
 
         static GUIStyle Make(int size, Font font, TextAnchor anchor, Color color)
         {
-            var s = new GUIStyle(GUI.skin.label) { fontSize = size, alignment = anchor, fontStyle = FontStyle.Normal };
+            var s = new GUIStyle(GUI.skin.label) { fontSize = Mathf.Max(size, MinFontSize), alignment = anchor, fontStyle = FontStyle.Normal };
             if (font != null) s.font = font;
             s.normal.textColor = color;
             s.wordWrap = false;

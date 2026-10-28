@@ -346,9 +346,9 @@ namespace SwarmPrototype
         {
             var form = Column(body, "Create form", 12, Pad(16, 14, 14, 14));
             HubTheme.Text(form, "Title", "Make it yours.", 22, HubTheme.Cream, HubTheme.Face.WideHeavy, 0, TextAlignmentOptions.MidlineLeft, false);
-            HubTheme.Label(form, "CLAN NAME");
+            HubTheme.Label(form, "CLAN NAME", null, 12);
             Input(form, "Clan name", "e.g. The Small Council", clanName, v => clanName = v, null, 48, 12, null, null, null, 24);
-            HubTheme.Label(form, "CLAN TAG");
+            HubTheme.Label(form, "CLAN TAG", null, 12);
             Input(form, "Clan tag", "2–4 letters", clanTag, v => clanTag = v, null, 48, 12, null, null, null, 4);
             HubTheme.Text(form, "Note", status.Length > 0 ? status : "You'll be the leader. A demo clan only changes this local preview.", 13, status.Length > 0 ? HubTheme.DangerText : HubTheme.Tertiary);
             var actions = Row(form, "Actions", 8, null, TextAnchor.MiddleLeft);

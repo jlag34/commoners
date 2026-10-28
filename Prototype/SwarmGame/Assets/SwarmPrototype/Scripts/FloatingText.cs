@@ -42,6 +42,7 @@ namespace SwarmPrototype
             entries.Add(new Entry { world = world, text = text, icon = icon, color = color, size = size, rise = rise, duration = duration, start = Time.time });
         }
 
+        // Call between UiSkin.Begin and End: positions and sizes are in design space.
         public static void Draw(Camera cam)
         {
             if (cam == null) return;
@@ -58,8 +59,9 @@ namespace SwarmPrototype
                 style.fontSize = Mathf.RoundToInt(e.size);
                 float iconSize = e.icon != null ? e.size + 4f : 0f;
                 float textWidth = style.CalcSize(new GUIContent(e.text)).x;
-                float x = screen.x - (iconSize + 4f + textWidth) * 0.5f;
-                float y = Screen.height - screen.y - iconSize * 0.5f;
+                Vector2 at = UiSkin.GuiPoint(screen);
+                float x = at.x - (iconSize + 4f + textWidth) * 0.5f;
+                float y = at.y - iconSize * 0.5f;
                 // Dark shadow behind the text so it reads on grass.
                 style.normal.textColor = new Color(0f, 0f, 0f, 0.8f * alpha);
                 GUI.Label(new Rect(x + iconSize + 5f, y + 1f, textWidth + 4f, iconSize), e.text, style);
