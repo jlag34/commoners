@@ -179,7 +179,7 @@ namespace SwarmPrototype
             float cx = x;
             GUI.Label(new Rect(cx, y + 40f, 60f, 20f), $"Level {tower.Level(i) + 1}:", UiSkin.Small);
             cx += 58f;
-            cx = Price(cx, y + 40f, "coin", tower.Cost(i));
+            if (tower.Cost(i) > 0) cx = Price(cx, y + 40f, "coin", tower.Cost(i));
             if (tower.SkullCost(i) > 0) cx = Price(cx, y + 40f, "skull", tower.SkullCost(i));
             int tier = tower.EssenceTier(i);
             if (tier >= 0) cx = Price(cx, y + 40f, GameState.EssenceTiers[tier], tower.EssenceCost(i), GameState.EssenceLabels[tier].ToLower());
@@ -204,7 +204,7 @@ namespace SwarmPrototype
                 GUI.Label(new Rect(x, y + 18f, area.width, 20f), "Hover a tile to see what it does. Click to buy.", UiSkin.Small);
                 return;
             }
-            GUI.Label(new Rect(x, y, area.width, 20f), "Greater: gold, skulls and one essence per level. Each row is an essence tier.", UiSkin.Small);
+            GUI.Label(new Rect(x, y, area.width, 20f), "Greater: skulls and one essence per level, no gold. Each row is an essence tier.", UiSkin.Small);
             float lx = x;
             lx = LegendIcon(lx, y + 20f, "skull", "any neutral kill");
             lx = LegendIcon(lx, y + 20f, "lesser", "any camp");

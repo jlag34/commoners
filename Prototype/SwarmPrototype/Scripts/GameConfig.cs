@@ -32,7 +32,7 @@ namespace SwarmPrototype
     // One buyable upgrade. `stat` picks what it changes (see Spawner.Compute):
     // attack and armor and health add `amountPerLevel` flat; attackSpeed and
     // moveSpeed add it as a fraction of the base; evasion adds it as a chance.
-    // The price of level n is baseCost * costGrowth^(n-1). maxLevel 0 = no cap.
+    // The price of level n is baseCost * costGrowth^(n-1). baseCost 0 = no gold. maxLevel 0 = no cap.
     // Team-wide bonuses for the towers (main and secondary), from the Special tab.
     // Team-wide economy bonuses from the Economy tab.
     [Serializable]
@@ -68,10 +68,11 @@ namespace SwarmPrototype
         // Shop tab this appears on.
         public string tab = "stats";
         public float amountPerLevel = 1f;
+        // Gold for level 1. 0 = no gold (Greater upgrades cost only skulls and essence).
         public int baseCost = 15;
         public float costGrowth = 1.15f;
         public int maxLevel = 0;
-        // Skulls (the neutral-kill currency) for level 1; grows by costGrowth like gold. 0 = none.
+        // Skulls (the neutral-kill currency) for level 1; grows by costGrowth. 0 = none.
         public int skullCost = 0;
         // Essence tier needed per level: "", "lesser", "greater" or "elite".
         public string essence = "";
@@ -93,6 +94,7 @@ namespace SwarmPrototype
 
         public int CostAt(int level)
         {
+            if (baseCost <= 0) return 0;
             float raw = baseCost * Mathf.Pow(costGrowth, Mathf.Max(0, level - 1));
             return Mathf.Max(1, Mathf.RoundToInt(raw));
         }
@@ -217,17 +219,17 @@ namespace SwarmPrototype
             new UpgradeConfig("health", "Health", "health", 10f, 1.15f, 0),
             new UpgradeConfig("armor", "Armor", "armor", 1f, 1.2f, 0),
             new UpgradeConfig("moveSpeed", "Move Speed", "moveSpeed", 0.08f, 1.15f, 10),
-            new UpgradeConfig("lifesteal", "Lifesteal", "lifesteal", 0.03f, 1.25f, 10, "greater", 40) { skullCost = 10, essence = "greater" },
-            new UpgradeConfig("evasion", "Evasion", "evasion", 0.04f, 1.3f, 8, "greater", 40) { skullCost = 10, essence = "greater" },
-            new UpgradeConfig("regen", "Unit Regen", "regen", 1f, 1.2f, 10, "greater", 30) { skullCost = 5, essence = "lesser" },
-            new UpgradeConfig("towerRegen", "Tower Regen", "towerRegen", 3f, 1.2f, 10, "greater", 30) { skullCost = 4, essence = "lesser" },
-            new UpgradeConfig("towerDamage", "Tower Damage", "towerDamage", 0.15f, 1.2f, 10, "greater", 35) { skullCost = 5, essence = "lesser" },
-            new UpgradeConfig("towerRange", "Tower Range", "towerRange", 1f, 1.3f, 5, "greater", 40) { skullCost = 5, essence = "lesser" },
-            new UpgradeConfig("crit", "Crit Chance", "crit", 0.05f, 1.25f, 8, "greater", 40) { skullCost = 10, essence = "greater" },
-            new UpgradeConfig("splash", "Splash", "splash", 0.1f, 1.3f, 5, "greater", 50) { skullCost = 20, essence = "elite" },
-            new UpgradeConfig("spawnRate", "Spawn Rate", "spawnRate", 0.1f, 1.25f, 10, "greater", 25) { skullCost = 20, essence = "elite" },
-            new UpgradeConfig("bounty", "Bounty", "bounty", 0.1f, 1.25f, 10, "greater", 30) { skullCost = 5, essence = "lesser" },
-            new UpgradeConfig("reincarnate", "Reincarnate", "reincarnate", 0.06f, 1.3f, 5, "greater", 40) { skullCost = 10, essence = "greater" },
+            new UpgradeConfig("lifesteal", "Lifesteal", "lifesteal", 0.03f, 1.25f, 10, "greater", 0) { skullCost = 10, essence = "greater" },
+            new UpgradeConfig("evasion", "Evasion", "evasion", 0.04f, 1.3f, 8, "greater", 0) { skullCost = 10, essence = "greater" },
+            new UpgradeConfig("regen", "Unit Regen", "regen", 1f, 1.2f, 10, "greater", 0) { skullCost = 5, essence = "lesser" },
+            new UpgradeConfig("towerRegen", "Tower Regen", "towerRegen", 3f, 1.2f, 10, "greater", 0) { skullCost = 4, essence = "lesser" },
+            new UpgradeConfig("towerDamage", "Tower Damage", "towerDamage", 0.15f, 1.2f, 10, "greater", 0) { skullCost = 5, essence = "lesser" },
+            new UpgradeConfig("towerRange", "Tower Range", "towerRange", 1f, 1.3f, 5, "greater", 0) { skullCost = 5, essence = "lesser" },
+            new UpgradeConfig("crit", "Crit Chance", "crit", 0.05f, 1.25f, 8, "greater", 0) { skullCost = 10, essence = "greater" },
+            new UpgradeConfig("splash", "Splash", "splash", 0.1f, 1.3f, 5, "greater", 0) { skullCost = 20, essence = "elite" },
+            new UpgradeConfig("spawnRate", "Spawn Rate", "spawnRate", 0.1f, 1.25f, 10, "greater", 0) { skullCost = 20, essence = "elite" },
+            new UpgradeConfig("bounty", "Bounty", "bounty", 0.1f, 1.25f, 10, "greater", 0) { skullCost = 5, essence = "lesser" },
+            new UpgradeConfig("reincarnate", "Reincarnate", "reincarnate", 0.06f, 1.3f, 5, "greater", 0) { skullCost = 10, essence = "greater" },
         };
 
         public static GameConfig Load()

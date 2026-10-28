@@ -31,7 +31,7 @@ namespace SwarmPrototype
 
         static readonly (string icon, float size, string help)[] Resources =
         {
-            ("coin", 20f, "Gold: from killing anything. Buys every upgrade."),
+            ("coin", 20f, "Gold: from killing anything. Buys Stats upgrades."),
             ("skull", 20f, "Skulls: every neutral monster you kill (1 easy, 4 medium, 10 hard, 50 elite). Greater upgrades cost skulls."),
             ("lesser", 14f, "Lesser Essence: a chance from any camp monster. Needed per level for the weaker Greater upgrades."),
             ("greater", 14f, "Greater Essence: a good chance from hard camps, guaranteed from elites. Needed for lifesteal, evasion, crit, reincarnate."),

@@ -56,6 +56,8 @@ Store and entitlements, battle pass, talent tree, cosmetics inventory, lockstep 
 
 ## Changes
 
+- 2026-10-28 (game agent, at the user's request): **Greater shop no longer costs gold.** `GameConfig.cs` `UpgradeConfig.baseCost` 0 now means no gold (`CostAt` returns 0); every `tab: "greater"` upgrade in `GameConfig.cs` and `Resources/swarm_config.json` has `baseCost: 0`, so they cost skulls + essence only. No shape change.
+
 - 2026-10-27 (game agent, at the user's request, with mocks): **`SocialOverlay.cs` rebuilt** on the hub widget kit to match the new in-match social mocks: a 380x580 card above the HUD's bottom-right buttons with Friends (add field with + button, requests with check / X, friends with last message, unread badge and chevron) and Clan (browser with search + Create, or your clan's header, members card and chat) tabs, direct chats with back chevron and bubbles, gold arrow-up send. Public API unchanged (`Ensure`, `Data`, `SetContext`, `Toggle`, `Open`, `OpenChat`, `Close`, `SimulateIncoming`, `SelectedThread`); the bottom-right `In-match social` button is gone (the HUD's people icon replaces it), the `Chat channel` tab, `Change conversation` and `Simulate incoming` controls are gone, `Leave clan` is now `Clan options`. `SocialDemoState.cs` untouched. `SocialDemoCheck.cs` needs those names updated.
 
 - 2026-10-27 (game agent): `Resources/swarm_config.json` camp `count` values raised 20% (rounded up: 4→5, 5→6, 3→4) for more essences and kills. No shape change.

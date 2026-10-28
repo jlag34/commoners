@@ -70,15 +70,17 @@ namespace SwarmPrototype
         }
 
         // Buys the cheapest upgrade it can afford, lowest level breaking ties, until
-        // it runs out of gold. With equal base prices this rotates through the stats.
+        // it runs out of money. With equal base prices this rotates through the stats.
+        // Greater upgrades cost no gold, so they go first whenever skulls and essence allow.
         void Shop()
         {
-            while (true)
+            // Bounded: an upgrade configured with no price at all would otherwise loop forever.
+            for (int bought = 0; bought < 200; bought++)
             {
                 int pick = -1;
                 for (int i = 0; i < self.Upgrades.Length; i++)
                 {
-                    // Only things it can pay for in full (gold, skulls and essence).
+                    // Only things it can pay for in full (gold, or skulls and essence).
                     if (!self.CanAfford(i)) continue;
                     if (pick < 0 || self.Cost(i) < self.Cost(pick) || (self.Cost(i) == self.Cost(pick) && self.Level(i) < self.Level(pick)))
                         pick = i;
